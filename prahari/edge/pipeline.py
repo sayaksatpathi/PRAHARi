@@ -64,6 +64,9 @@ from prahari.edge.priority import ScoringContext, score_event
 from prahari.edge.profiling.certificate import issue_certificate
 from prahari.edge.profiling.measure import CameraProfiler
 from prahari.edge.rules.engine import EventCandidate, RuleContext, RuleEngine
+from prahari.common.models import Priority as _Priority
+from prahari.edge.segment.base import Segmenter
+from prahari.edge.segment.refine import refine_event
 from prahari.edge.sources.base import VideoSource
 from prahari.edge.tamper import TamperDetector
 from prahari.edge.track.bytetrack import ByteTracker
@@ -113,6 +116,7 @@ class CameraPipeline:
         plate_reader_factory=None,
         on_plate_read=None,
         repeat_plates: RepeatPlateTracker | None = None,
+        segmenter: Segmenter | None = None,
     ) -> None:
         self.camera = camera
         self.source = source
@@ -131,6 +135,10 @@ class CameraPipeline:
         # None, and ANPR never ran even on a camera that later certified for it.
         self._plate_reader_factory = plate_reader_factory
         self.on_plate_read = on_plate_read
+        # Second-stage segmentation, invoked only on important events.
+        self.segmenter = segmenter
+        self._latest_raw_image = None
+        self._segment_min_rank = _Priority(settings.segment_min_priority).rank
         self.plate_reader: PlateReader | None = None
         self.repeat_plates = repeat_plates
 
@@ -256,6 +264,10 @@ class CameraPipeline:
             log.info("camera %s recovered", self.camera.camera_id)
         self._consecutive_failures = 0
         self._frame_index = frame.index
+        # Kept for the second-stage segmenter, which needs the raw frame the
+        # candidates were generated from. Valid because _emit_event runs before
+        # the next frame is read.
+        self._latest_raw_image = frame.image
         ts = frame.timestamp.timestamp()
 
         now_mono = time.monotonic()
@@ -665,6 +677,27 @@ class CameraPipeline:
         )
         score, factors, priority = score_event(cand.event_type, track, sctx)
 
+        # --- second-stage segmentation refinement -----------------------
+        # Only for events that already cleared the priority bar and have a track
+        # to prompt with. This is the whole point of the event-triggered design:
+        # the expensive precise stage runs on the few events that matter, never
+        # on the per-frame path.
+        refine_detail: dict[str, Any] = {}
+        refinement = None
+        if (self.segmenter is not None and track is not None
+                and priority.rank >= self._segment_min_rank
+                and self._latest_raw_image is not None):
+            refinement = await self._refine(cand, track)
+        if refinement is not None:
+            adj = refinement.score_adjustment
+            if abs(adj) > 1e-6:
+                score = max(0.0, min(1.0, score + adj))
+                priority = _Priority.from_score(score)
+                factors = list(factors) + [PriorityFactor(
+                    name="segmentation refinement", weight=round(adj, 3),
+                    detail=refinement.detail.get("refinement_reason", ""))]
+            refine_detail = refinement.detail
+
         event = Event(
             event_id="EVT-" + uuid.uuid4().hex[:12].upper(),
             camera_id=self.camera.camera_id,
@@ -687,7 +720,8 @@ class CameraPipeline:
                     **({"anpr": plate.as_dict()} if (plate := self.plate_for(
                         track.track_id if track else None)) else {}),
                     "normalcy": verdict.detail,
-                    "dedupe_key": cand.dedupe_key},
+                    "dedupe_key": cand.dedupe_key,
+                    **({"refinement": refine_detail} if refine_detail else {})},
         )
 
         # Trigger frame now; the clip completes a few seconds later.
@@ -700,6 +734,17 @@ class CameraPipeline:
                 frame_path=str(frame_path), thumb_path=str(thumb_path),
                 frame_sha256=digest,
             )
+            if refinement is not None:
+                try:
+                    mask_path, mask_digest = self.evidence_store.write_mask(
+                        self.camera.camera_id, event.event_id, now,
+                        latest[1], refinement.result)
+                    if mask_path is not None:
+                        event.evidence.mask_path = str(mask_path)
+                        event.evidence.mask_sha256 = mask_digest
+                except Exception:
+                    log.exception("could not write segmentation mask for %s",
+                                  event.event_id)
             if len(self._pending_clips) < MAX_PENDING_CLIPS:
                 clip_queued = True
                 self._pending_clips.append(PendingClip(
@@ -746,6 +791,22 @@ class CameraPipeline:
             {"event": event.model_dump(mode="json")},
         )
 
+    async def _refine(self, cand: EventCandidate, track):
+        """Run the segmenter for one event, off the event loop."""
+        loop = asyncio.get_running_loop()
+        image = self._latest_raw_image
+        zone = cand.zone
+        box_in_zone = bool(zone and zone.zone_id in
+                           (track.zones if track else []))
+        try:
+            return await loop.run_in_executor(
+                None, refine_event, self.segmenter, image, track.bbox,
+                zone, box_in_zone)
+        except Exception:
+            log.exception("segmentation refinement failed for %s",
+                          self.camera.camera_id)
+            return None
+
     async def _publish_live(self) -> None:
         await self.bus.publish(
             subj(self.settings.node_id, "tracks", self.camera.camera_id),
@@ -786,6 +847,8 @@ class CameraPipeline:
             "granted": sorted(c.value for c in self.certificate.granted())
                        if self.certificate else [],
             "dori": self.certificate.overall_dori.value if self.certificate else None,
+            "segmenter": (self.segmenter.describe() if self.segmenter
+                          else {"enabled": False}),
             "detector_blind": self.detector_blind,
             "detector_note": (
                 "This camera reads a real stream but the SYNTHETIC detector is "

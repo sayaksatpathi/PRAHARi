@@ -242,6 +242,7 @@ Interactive documentation at `/docs` on a running node.
 | GET | `/api/anpr/plates` | Plate reads and repeat-entity history |
 | POST | `/api/cameras/{id}/test` | Probe a real RTSP stream |
 | — | `scripts/evaluate.py` | Deterministic evaluation harness → HTML report |
+| — | `scripts/benchmark_segment.py` | Segmentation latency / FPS / VRAM benchmark |
 | POST | `/api/demo/action` | Drive the demonstration |
 | WS | `/ws` | Live detections, events, status |
 
@@ -258,6 +259,7 @@ that matter most:
 PRAHARI_LOITERING_THRESHOLD_SECONDS=30
 PRAHARI_EVENT_COOLDOWN_SECONDS=30     # one crossing = one event
 PRAHARI_ALERT_BUDGET_PER_HOUR=20      # operator attention budget
+PRAHARI_SEGMENT_BACKEND=auto          # event-triggered segmentation: auto|sam_onnx|grabcut|off
 PRAHARI_EVENT_CLIP_BEFORE_SECONDS=3   # pre-roll: the approach, not just the trigger
 PRAHARI_QUEUE_MAX_BYTES=2147483648    # before clip eviction begins
 PRAHARI_INFERENCE_INTERVAL=2          # detect every Nth frame; track every frame
@@ -346,9 +348,14 @@ The gap between this and something deployable, in priority order:
 4. **Friendly-force suppression.** SSB patrols walk the same routes and trip every
    rule. Patrol-schedule ingestion is the single biggest remaining false-alarm
    source.
-5. **Thermal-specific models.** Real border night capability is thermal, and an
+5. **SAM 2 GPU validation.** The event-triggered segmentation refinement is
+   built and running (GrabCut backend, verified live; SAM 2 ONNX backend written
+   behind the same interface). What remains is validating the SAM backend against
+   real weights on a GPU — deferred for the same connection reason as MOT17. See
+   [docs/segmentation.md](docs/segmentation.md).
+6. **Thermal-specific models.** Real border night capability is thermal, and an
    RGB model on a thermal feed is a compromise.
-6. **Replay/evaluation harness** producing precision, recall and false-alarm rate
+7. **Replay/evaluation harness** producing precision, recall and false-alarm rate
    against annotated footage, so accuracy questions get numbers rather than
    adjectives.
 

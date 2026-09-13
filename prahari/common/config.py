@@ -55,6 +55,15 @@ class Settings(BaseSettings):
     anpr_repeat_window_hours: float = 168.0
     anpr_repeat_min_sightings: int = 3
 
+    # --- Segmentation (event-triggered second-stage refinement) -----------
+    # auto | sam_onnx | grabcut | off. "auto" uses SAM 2 ONNX when its weights
+    # are present, else GrabCut (CPU, no download). Invoked only for events at or
+    # above segment_min_priority, never on the per-frame hot path.
+    segment_backend: str = "auto"
+    segment_min_priority: str = "high"
+    sam_encoder_path: Path = Path("./models/sam2_encoder.onnx")
+    sam_decoder_path: Path = Path("./models/sam2_decoder.onnx")
+
     # --- Tracking ----------------------------------------------------------
     track_timeout_seconds: float = 5.0
     track_match_iou: float = 0.30

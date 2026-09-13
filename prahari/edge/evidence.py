@@ -152,6 +152,37 @@ class EvidenceStore:
             cv2.imwrite(str(thumb_path), thumb, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
         return frame_path, thumb_path, sha256_bytes(jpeg)
 
+    def write_mask(self, camera_id: str, event_id: str, when: datetime,
+                   frame_jpeg: bytes, seg) -> tuple[Path | None, str]:
+        """Render the segmentation as an overlay on the trigger frame.
+
+        The operator gets the object outlined precisely on the actual frame -
+        far easier to verify than a rectangle - plus the mask itself. Kept small
+        (a PNG overlay), so it is cheap to store and to ship as evidence.
+        """
+        d = self._dir_for(camera_id, event_id, when)
+        arr = cv2.imdecode(np.frombuffer(frame_jpeg, dtype=np.uint8), cv2.IMREAD_COLOR)
+        if arr is None:
+            return None, ""
+        overlay = arr.copy()
+        ox, oy = seg.offset
+        mh, mw = seg.mask.shape[:2]
+        region = overlay[oy:oy + mh, ox:ox + mw]
+        if region.shape[:2] == seg.mask.shape[:2]:
+            tint = np.zeros_like(region)
+            tint[:, :] = (64, 196, 255)
+            m = seg.mask.astype(bool)
+            region[m] = (0.5 * region[m] + 0.5 * tint[m]).astype(np.uint8)
+        if len(seg.polygon) >= 3:
+            pts = np.array([[int(p.x), int(p.y)] for p in seg.polygon], dtype=np.int32)
+            cv2.polylines(overlay, [pts], True, (64, 196, 255), 2, cv2.LINE_AA)
+        gx, gy = seg.ground_contact
+        cv2.circle(overlay, (int(gx), int(gy)), 4, (0, 0, 255), -1)
+
+        mask_path = d / "mask.png"
+        cv2.imwrite(str(mask_path), overlay)
+        return mask_path, sha256_file(mask_path)
+
     def write_clip(self, camera_id: str, event_id: str, when: datetime,
                    frames: list[tuple[float, bytes]], fps: float) -> tuple[Path | None, str, float, int]:
         if not frames:

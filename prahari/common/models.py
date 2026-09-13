@@ -450,8 +450,10 @@ class EvidenceRef(BaseModel):
     frame_path: str | None = None
     thumb_path: str | None = None
     clip_path: str | None = None
+    mask_path: str | None = None            # segmentation overlay, when refined
     frame_sha256: str | None = None
     clip_sha256: str | None = None
+    mask_sha256: str | None = None
     clip_seconds: float = 0.0
     size_bytes: int = 0
 

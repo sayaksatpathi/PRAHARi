@@ -48,6 +48,7 @@ from prahari.edge.factory import (
 )
 from prahari.edge.normalcy import NormalcyModel
 from prahari.edge.pipeline import CameraPipeline
+from prahari.edge.segment.factory import build_segmenter
 from prahari.edge.sync import SyncManager
 
 logging.basicConfig(
@@ -84,6 +85,7 @@ class NodeRuntime:
         self.governor = AlertGovernor(self.settings.alert_budget_per_hour)
         self.pipelines: dict[str, CameraPipeline] = {}
         self.detector = None
+        self.segmenter = None
         self.plate_reader = None
         self._plate_readers: dict[str, Any] = {}
         # A short rolling log, so a read survives the vehicle driving out of
@@ -114,6 +116,11 @@ class NodeRuntime:
 
         self.detector = build_detector(self.settings)
         log.info("detector backend: %s", self.detector.describe())
+
+        self.segmenter = build_segmenter(self.settings)
+        if self.segmenter is not None:
+            self.segmenter.warmup()
+            log.info("segmentation backend: %s", self.segmenter.describe())
 
 
 
@@ -163,6 +170,7 @@ class NodeRuntime:
             governor=self.governor,
             plate_reader_factory=self._plate_reader_for,
             on_plate_read=self._record_plate_read,
+            segmenter=self.segmenter,
             repeat_plates=self.repeat_plates,
         )
         self.pipelines[camera.camera_id] = pipeline
@@ -294,6 +302,8 @@ async def system_status(principal: Principal = Depends(current_principal)):
         "sync": runtime.sync.status(),
         "alerting": runtime.governor.status(),
         "detector": runtime.detector.describe() if runtime.detector else {},
+        "segmentation": (runtime.segmenter.describe() if runtime.segmenter
+                         else {"enabled": False}),
         "anpr": ({"enabled": True,
                   "backends": [r.describe() for r in runtime._plate_readers.values() if r]}
                  if runtime._plate_readers
