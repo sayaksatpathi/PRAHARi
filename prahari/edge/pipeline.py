@@ -169,6 +169,7 @@ class CameraPipeline:
         self._consecutive_failures = 0
         self._tamper_fired = False
         self._recalibrate_at: int | None = None
+        self.detector_blind = False
         # Best plate read per track, and when each track was last attempted.
         self._plate_reads: dict[int, Any] = {}
         self._plate_attempts: dict[int, int] = {}
@@ -191,6 +192,14 @@ class CameraPipeline:
         # running state would re-create the deadlock on every restart.
         if self.certificate and self.certificate.measurement.ground_plane_estimated:
             self.state = "running"
+        # A synthetic detector on a real stream detects nothing, ever, while the
+        # camera reports a healthy frame rate. Record it on the pipeline so the
+        # API and the dashboard can say so, rather than leaving it in a log line
+        # nobody reads during a demonstration.
+        self.detector_blind = (
+            bool(self.detector.describe().get("simulated"))
+            and not getattr(self.source, "is_simulated", False)
+        )
         self.camera.health = CameraHealth.ONLINE
         self._running = True
         self._task = asyncio.create_task(
@@ -239,6 +248,12 @@ class CameraPipeline:
             if self._consecutive_failures > self.source.nominal_fps * 5:
                 self.camera.health = CameraHealth.OFFLINE
             return []
+        # A stream that has resumed is online again. Without this a camera that
+        # dropped frames once during RTSP connection setup stayed marked OFFLINE
+        # for the rest of its life while happily delivering video.
+        if self._consecutive_failures and self.camera.health is CameraHealth.OFFLINE:
+            self.camera.health = CameraHealth.ONLINE
+            log.info("camera %s recovered", self.camera.camera_id)
         self._consecutive_failures = 0
         self._frame_index = frame.index
         ts = frame.timestamp.timestamp()
@@ -771,6 +786,12 @@ class CameraPipeline:
             "granted": sorted(c.value for c in self.certificate.granted())
                        if self.certificate else [],
             "dori": self.certificate.overall_dori.value if self.certificate else None,
+            "detector_blind": self.detector_blind,
+            "detector_note": (
+                "This camera reads a real stream but the SYNTHETIC detector is "
+                "loaded, which works only from simulator ground truth. It will "
+                "detect nothing. Install an ONNX model (models/README.md) and "
+                "use real footage." if self.detector_blind else ""),
             "anpr": (self.plate_reader.describe() if self.plate_reader
                      else {"enabled": False}),
             "plates_read": len(self._plate_reads),

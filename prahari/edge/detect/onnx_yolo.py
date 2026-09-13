@@ -121,6 +121,8 @@ class OnnxYoloDetector(Detector):
         self.input_size = int(shape[2]) if isinstance(shape[2], int) else input_size
         self.output_names = [o.name for o in self.session.get_outputs()]
         self._layout: str | None = None
+        self._yolox: bool | None = None
+        self._grid_cache: tuple[np.ndarray, np.ndarray] | None = None
         log.info(
             "loaded %s on %s (input %s, providers=%s)",
             self.model_path.name, self.device, self.input_size, self.session.get_providers(),
@@ -148,6 +150,43 @@ class OnnxYoloDetector(Detector):
             log.exception("warmup inference failed")
 
     # -- output decoding -------------------------------------------------
+    def _yolox_grids(self, n_anchors: int) -> tuple[np.ndarray, np.ndarray]:
+        """Anchor-point grid and per-anchor stride for a YOLOX head.
+
+        Cached, because it depends only on the input size.
+        """
+        if self._grid_cache is not None and self._grid_cache[0].shape[1] == n_anchors:
+            return self._grid_cache
+
+        grids, strides = [], []
+        for stride in (8, 16, 32):
+            size = self.input_size // stride
+            yv, xv = np.meshgrid(np.arange(size), np.arange(size), indexing="ij")
+            grid = np.stack((xv, yv), axis=2).reshape(1, -1, 2).astype(np.float32)
+            grids.append(grid)
+            strides.append(np.full((1, grid.shape[1], 1), stride, dtype=np.float32))
+
+        grid = np.concatenate(grids, axis=1)
+        stride = np.concatenate(strides, axis=1)
+        if grid.shape[1] != n_anchors:
+            log.warning(
+                "YOLOX grid has %d anchors but the model produced %d; the input "
+                "size (%d) may not match the export",
+                grid.shape[1], n_anchors, self.input_size,
+            )
+        self._grid_cache = (grid, stride)
+        return self._grid_cache
+
+    def _needs_yolox_decode(self, boxes: np.ndarray) -> bool:
+        """Decide, from the data, whether boxes are still in grid units.
+
+        A decoded head emits box centres spanning the input resolution - values
+        into the hundreds. YOLOX's released ONNX exports emit offsets relative to
+        an anchor point, which stay within a few units. Testing the magnitude is
+        more robust than testing the filename, and costs one comparison once.
+        """
+        return float(np.abs(boxes[:, :2]).max()) < (self.input_size / 8.0)
+
     def _decode(self, raw: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Normalise the many YOLO output layouts into (boxes_xywh, scores, class_ids).
 
@@ -172,7 +211,19 @@ class OnnxYoloDetector(Detector):
         ncol = preds.shape[1]
         boxes = preds[:, :4]
         if ncol >= 85 and self._layout == "rows":
-            # v5 layout: objectness * class score
+            # A separate objectness column: YOLOv5 and YOLOX both look like this.
+            if self._yolox is None:
+                self._yolox = self._needs_yolox_decode(boxes)
+                if self._yolox:
+                    log.info("detected an undecoded YOLOX head; applying "
+                             "anchor-point and stride decoding")
+            if self._yolox:
+                grid, stride = self._yolox_grids(preds.shape[0])
+                n = min(preds.shape[0], grid.shape[1])
+                boxes = boxes[:n].copy()
+                preds = preds[:n]
+                boxes[:, :2] = (boxes[:, :2] + grid[0, :n]) * stride[0, :n]
+                boxes[:, 2:4] = np.exp(np.clip(boxes[:, 2:4], -20, 20)) * stride[0, :n]
             objectness = preds[:, 4:5]
             class_scores = preds[:, 5:] * objectness
         else:

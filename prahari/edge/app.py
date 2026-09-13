@@ -43,7 +43,9 @@ from prahari.edge.anpr import RepeatPlateTracker, build_plate_reader
 from prahari.edge.auth import Principal, UserStore, issue_token, verify_token
 from prahari.edge.demo import bootstrap_demo_site
 from prahari.edge.evidence import EvidenceLedger, EvidenceStore
-from prahari.edge.factory import build_detector, build_source
+from prahari.edge.factory import (
+    build_detector, build_source, warn_if_detector_cannot_see,
+)
 from prahari.edge.normalcy import NormalcyModel
 from prahari.edge.pipeline import CameraPipeline
 from prahari.edge.sync import SyncManager
@@ -152,6 +154,7 @@ class NodeRuntime:
         except Exception:
             log.exception("could not build source for %s", camera.camera_id)
             return
+        warn_if_detector_cannot_see(self.detector, camera, source)
         pipeline = CameraPipeline(
             camera=camera, source=source, detector=self.detector,
             db=self.db, bus=self.bus, settings=self.settings,

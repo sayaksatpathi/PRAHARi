@@ -130,6 +130,19 @@ once to the node console on first start.
 simulator's known truth. `smoke_e2e.py` drives the three demonstration moments
 against a running node and checks each actually happened.
 
+### Ingesting real RTSP
+
+```bash
+pip install imageio-ffmpeg
+python scripts/make_footage.py        # render recordings
+python scripts/serve_rtsp.py          # serve them as RTSP via MediaMTX
+python scripts/use_rtsp_cameras.py --only CAM-011,CAM-031
+```
+
+Frames then arrive over the wire through the same `StreamSource` that reads a
+real camera. **Detection needs real footage as well as a real model** — see
+[docs/rtsp.md](docs/rtsp.md), which explains why and how the system says so.
+
 ---
 
 ## The demonstration
@@ -213,6 +226,7 @@ Interactive documentation at `/docs` on a running node.
 | GET | `/api/events/{id}/evidence/{frame\|thumb\|clip}` | Evidence retrieval |
 | POST | `/api/alerts/{id}/acknowledge` | Acknowledge, with true-positive / false-alarm feedback |
 | GET | `/api/anpr/plates` | Plate reads and repeat-entity history |
+| POST | `/api/cameras/{id}/test` | Probe a real RTSP stream |
 | POST | `/api/demo/action` | Drive the demonstration |
 | WS | `/ws` | Live detections, events, status |
 
@@ -301,16 +315,16 @@ one that has them.
 
 The gap between this and something deployable, in priority order:
 
-1. **Real-footage validation.** The single most valuable remaining item. The
-   ANPR backend in particular is wired and running but its accuracy is
-   demonstrated by nothing here, because a real plate model finds nothing in
-   synthetic imagery.
+1. **Real-footage validation.** The single most valuable remaining item, and now
+   the blocker for two others. Measured during v0.2: a COCO-trained detector
+   scores **0.33 ("bird")** on a rendered frame, and fast-alpr finds no plate at
+   all. Both real models are wired, load and run — their accuracy is demonstrated
+   by nothing here, because synthetic imagery is not photographic. Real footage
+   unblocks the RTSP path, ANPR validation, and any accuracy claim at all.
 2. **Cross-camera track handoff.** A camera topology graph with learnt transition
    times turns five independent cameras into one corridor. *Seen at CAM-3 heading
    north-east, appeared at CAM-7, never reached CAM-9* is an intelligence product;
    three separate events are not.
-3. **MediaMTX** for genuine RTSP ingestion, closing the last gap between the
-   demo path and a real deployment.
 4. **Friendly-force suppression.** SSB patrols walk the same routes and trip every
    rule. Patrol-schedule ingestion is the single biggest remaining false-alarm
    source.

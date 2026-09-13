@@ -132,7 +132,7 @@ def main() -> int:
     total_mb = sum(p.stat().st_size for p in written) / 1e6
     print(f"\n{len(written)} file(s), {total_mb:.1f} MB total, in {out_dir}/")
     print("\nNext:")
-    print("  Serve them as RTSP      scripts/serve_rtsp.sh")
+    print("  Serve them as RTSP      scripts/serve_rtsp.py")
     print("  Or ingest directly      set a camera's source_kind to \"file\" and")
     print("                          stream_url to the path")
     return 0 if written else 1

@@ -20,6 +20,34 @@ from prahari.edge.sources.simulator import OpticalProfile, SimulatedCamera
 log = logging.getLogger("prahari.factory")
 
 
+def warn_if_detector_cannot_see(detector: Detector, camera: Camera, source) -> None:
+    """Refuse to let a real stream run silently blind.
+
+    The synthetic detector is driven entirely by simulator ground truth. Point it
+    at a real RTSP stream - which by definition has none - and it returns nothing,
+    for every frame, forever, while the camera shows a healthy frame rate and the
+    dashboard looks entirely normal. That is the most dangerous failure mode in
+    this system, so it is stated loudly rather than left to be discovered.
+    """
+    if not detector.describe().get("simulated"):
+        return
+    if getattr(source, "is_simulated", False):
+        return
+    log.error(
+        "camera %s reads a REAL source (%s) but the SYNTHETIC detector is "
+        "loaded. The synthetic detector works from simulator ground truth and "
+        "a real stream has none, so this camera will detect NOTHING. Install an "
+        "ONNX model at %s - see models/README.md.",
+        camera.camera_id, camera.source_kind, settings_model_path(),
+    )
+
+
+def settings_model_path() -> str:
+    from prahari.common.config import get_settings
+
+    return str(get_settings().model_path)
+
+
 def build_detector(settings: Settings) -> Detector:
     """Pick a detector, preferring a real model and saying so either way."""
     choice = (settings.detector or "auto").lower()

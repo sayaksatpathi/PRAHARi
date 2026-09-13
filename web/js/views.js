@@ -70,6 +70,10 @@ const Views = (() => {
             </span>
             ${rt.dori ? `<span class="badge b-neutral tiny" title="IEC 62676-4 pixels-on-target band">DORI ${esc(rt.dori.toUpperCase())}</span>` : ''}
           </div>
+          ${rt.detector_blind ? `
+            <div class="notice bad tiny" style="margin-top:7px">
+              <strong>Detecting nothing.</strong> ${esc(rt.detector_note || '')}
+            </div>` : ''}
           ${profiling && pg
             ? `<div class="tiny faint" style="margin-top:6px">
                  Measuring optics; needs ${pg.ground_samples_required - pg.ground_samples} more

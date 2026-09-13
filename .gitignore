@@ -12,3 +12,9 @@ models/*.onnx
 *.mp4
 *.avi
 footage/
+vendor/
+models/*.onnx
+
+# MediaMTX writes self-signed certs into its working directory
+auto.crt
+auto.key
