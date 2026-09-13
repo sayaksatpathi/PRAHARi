@@ -48,6 +48,13 @@ class Settings(BaseSettings):
     detection_confidence: float = 0.35
     nms_iou: float = 0.45
 
+    # --- ANPR --------------------------------------------------------------
+    # auto | fast_alpr | synthetic. "auto" prefers the real ONNX backend and
+    # falls back to the clearly-labelled synthetic reader if it is unavailable.
+    anpr_backend: str = "auto"
+    anpr_repeat_window_hours: float = 168.0
+    anpr_repeat_min_sightings: int = 3
+
     # --- Tracking ----------------------------------------------------------
     track_timeout_seconds: float = 5.0
     track_match_iou: float = 0.30

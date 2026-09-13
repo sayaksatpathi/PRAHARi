@@ -54,6 +54,9 @@ from prahari.common.models import (
     Zone,
 )
 from prahari.edge.alerting import AlertGovernor
+from prahari.edge.anpr import (
+    PlateReader, RepeatPlateTracker, anpr_region, vehicle_in_anpr_region,
+)
 from prahari.edge.detect.base import Detector
 from prahari.edge.evidence import EvidenceBuffer, EvidenceLedger, EvidenceStore, PendingClip
 from prahari.edge.normalcy import NormalcyModel
@@ -80,6 +83,10 @@ DEFAULT_BOX_COLOUR = (120, 220, 160)
 # JPEG pre-roll in memory, so this is a memory ceiling, not a nicety.
 MAX_PENDING_CLIPS = 12
 
+# Frames between plate-read attempts on the same vehicle. A plate does not
+# change between frames, and this is the most expensive model on the node.
+ANPR_ATTEMPT_INTERVAL = 6
+
 # How long to wait before re-attempting calibration on a camera that was
 # certified without a ground plane. Traffic is not uniform: a camera that saw
 # nobody during a quiet night may see plenty at first light, and a camera that
@@ -103,6 +110,9 @@ class CameraPipeline:
         normalcy: NormalcyModel,
         meter=None,
         governor: AlertGovernor | None = None,
+        plate_reader_factory=None,
+        on_plate_read=None,
+        repeat_plates: RepeatPlateTracker | None = None,
     ) -> None:
         self.camera = camera
         self.source = source
@@ -115,6 +125,14 @@ class CameraPipeline:
         self.normalcy = normalcy
         self.meter = meter
         self.governor = governor
+        # Resolved lazily, not at construction. A camera has no capability
+        # certificate until it has finished profiling, which happens minutes
+        # after the pipeline starts - so binding a reader up front always bound
+        # None, and ANPR never ran even on a camera that later certified for it.
+        self._plate_reader_factory = plate_reader_factory
+        self.on_plate_read = on_plate_read
+        self.plate_reader: PlateReader | None = None
+        self.repeat_plates = repeat_plates
 
         self.tracker = ByteTracker(
             camera.camera_id,
@@ -151,6 +169,9 @@ class CameraPipeline:
         self._consecutive_failures = 0
         self._tamper_fired = False
         self._recalibrate_at: int | None = None
+        # Best plate read per track, and when each track was last attempted.
+        self._plate_reads: dict[int, Any] = {}
+        self._plate_attempts: dict[int, int] = {}
 
         # Profiling needs person detections before anything else can be granted,
         # so the first pass runs with exactly that and nothing more.
@@ -313,6 +334,8 @@ class CameraPipeline:
             if self.profiler.ready:
                 self._issue_certificate()
 
+        anpr_events = self._run_anpr(frame)
+
         self._learn_normalcy(frame.timestamp)
         if self._frame_index % 150 == 0:
             self._sweep_unchained()
@@ -320,6 +343,7 @@ class CameraPipeline:
 
         if self.state != "running":
             return []
+
 
         ctx = RuleContext(
             camera=self.camera,
@@ -335,7 +359,7 @@ class CameraPipeline:
             group_window_s=self.settings.group_window_seconds,
             cooldown_s=self.settings.event_cooldown_seconds,
         )
-        return self.rules.evaluate(self.tracker, self._tracks, ctx)
+        return anpr_events + self.rules.evaluate(self.tracker, self._tracks, ctx)
 
     def _issue_certificate(self) -> None:
         measurement = self.profiler.build(claimed_fps=self.camera.claimed_fps)
@@ -403,6 +427,92 @@ class CameraPipeline:
             for zone_id in t.zones:
                 self.normalcy.observe(self.camera.camera_id, t.object_class, when,
                                       zone_id=zone_id)
+
+    # -- ANPR ------------------------------------------------------------
+    def _run_anpr(self, frame) -> list[EventCandidate]:
+        """Read plates, but only where this camera is certified to.
+
+        Two gates, both ahead of any model call. The certificate must grant ANPR
+        at all, and the vehicle must be inside the image band where the measured
+        scale actually reaches the plate-reading threshold. Running the model
+        everywhere and filtering afterwards is not equivalent: OCR confidence on
+        a too-small plate is not calibrated, so bad reads do not announce
+        themselves.
+        """
+        if self.certificate is None:
+            return []
+        region = anpr_region(self.certificate)
+        if region is None:
+            return []          # this camera is not certified to read plates
+
+        if self.plate_reader is None:
+            if self._plate_reader_factory is None:
+                return []
+            self.plate_reader = self._plate_reader_factory(self.camera, self.source)
+            if self.plate_reader is None:
+                return []
+            log.info("camera %s: ANPR enabled, backend %s",
+                     self.camera.camera_id, self.plate_reader.describe().get("name"))
+
+        h, w = frame.image.shape[:2]
+        out: list[EventCandidate] = []
+
+        for track in self._tracks:
+            if not track.object_class.is_vehicle:
+                continue
+            existing = self._plate_reads.get(track.track_id)
+            if existing is not None and existing.above_threshold and existing.format_valid:
+                continue          # already have a good read for this vehicle
+
+            if not vehicle_in_anpr_region(track.bbox, region, w, h):
+                continue
+
+            # Throttle per track. Plate reading is the most expensive thing on
+            # this node and a vehicle's plate does not change between frames.
+            last = self._plate_attempts.get(track.track_id, -999)
+            if self._frame_index - last < ANPR_ATTEMPT_INTERVAL:
+                continue
+            self._plate_attempts[track.track_id] = self._frame_index
+
+            read = self.plate_reader.read(
+                frame.image, track.bbox,
+                {"ground_truth": frame.ground_truth},
+            )
+            if read is None:
+                continue
+
+            previous = self._plate_reads.get(track.track_id)
+            if previous is None or read.ocr_confidence > previous.ocr_confidence:
+                self._plate_reads[track.track_id] = read
+                if self.on_plate_read is not None:
+                    self.on_plate_read({
+                        "camera_id": self.camera.camera_id,
+                        "track_id": track.track_id,
+                        "at": frame.timestamp.isoformat(),
+                        **read.as_dict(),
+                    })
+
+            if self.repeat_plates is not None:
+                finding = self.repeat_plates.observe(
+                    read, self.camera.camera_id, frame.timestamp)
+                if finding:
+                    out.append(EventCandidate(
+                        event_type=EventType.REPEAT_ENTITY,
+                        track=track, zone=None,
+                        summary=finding["summary"],
+                        dedupe_key=f"{self.camera.camera_id}:repeat:{finding['plate']}",
+                        detail={"anpr": read.as_dict(), **finding},
+                    ))
+
+        # Forget tracks that have retired, so the maps cannot grow without bound.
+        live = {t.track_id for t in self._tracks}
+        for stale in [t for t in self._plate_reads if t not in live]:
+            self._plate_reads.pop(stale, None)
+            self._plate_attempts.pop(stale, None)
+        return out
+
+    def plate_for(self, track_id: int | None):
+        return self._plate_reads.get(track_id) if track_id is not None else None
 
     def _sweep_unchained(self) -> None:
         """Seal any event whose clip never finished.
@@ -559,6 +669,8 @@ class CameraPipeline:
             monotonic_ns=time.monotonic_ns(),
             summary=cand.summary,
             detail={**cand.detail,
+                    **({"anpr": plate.as_dict()} if (plate := self.plate_for(
+                        track.track_id if track else None)) else {}),
                     "normalcy": verdict.detail,
                     "dedupe_key": cand.dedupe_key},
         )
@@ -659,6 +771,9 @@ class CameraPipeline:
             "granted": sorted(c.value for c in self.certificate.granted())
                        if self.certificate else [],
             "dori": self.certificate.overall_dori.value if self.certificate else None,
+            "anpr": (self.plate_reader.describe() if self.plate_reader
+                     else {"enabled": False}),
+            "plates_read": len(self._plate_reads),
             "profiling_progress": (self.profiler.progress
                                    if self.state == "profiling" else None),
             "pending_clips": len(self._pending_clips),

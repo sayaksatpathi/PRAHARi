@@ -31,6 +31,7 @@ from prahari.common.config import get_settings
 from prahari.common.db import Database
 from prahari.common.models import (
     Camera,
+    Capability,
     LinkMode,
     Priority,
     SyncState,
@@ -38,6 +39,7 @@ from prahari.common.models import (
     Zone,
 )
 from prahari.edge.alerting import AlertGovernor
+from prahari.edge.anpr import RepeatPlateTracker, build_plate_reader
 from prahari.edge.auth import Principal, UserStore, issue_token, verify_token
 from prahari.edge.demo import bootstrap_demo_site
 from prahari.edge.evidence import EvidenceLedger, EvidenceStore
@@ -80,6 +82,19 @@ class NodeRuntime:
         self.governor = AlertGovernor(self.settings.alert_budget_per_hour)
         self.pipelines: dict[str, CameraPipeline] = {}
         self.detector = None
+        self.plate_reader = None
+        self._plate_readers: dict[str, Any] = {}
+        # A short rolling log, so a read survives the vehicle driving out of
+        # frame. Per-track state is discarded when the track retires, which is
+        # correct for the pipeline and useless for an operator asking what was
+        # just read.
+        self.recent_plate_reads: list[dict[str, Any]] = []
+        # Plate history is node-wide, not per camera: the signal that matters on
+        # an open border is the same vehicle appearing at several places.
+        self.repeat_plates = RepeatPlateTracker(
+            window_hours=self.settings.anpr_repeat_window_hours,
+            min_sightings=self.settings.anpr_repeat_min_sightings,
+        )
         self.started_at = time.monotonic()
 
     async def start(self) -> None:
@@ -98,6 +113,8 @@ class NodeRuntime:
         self.detector = build_detector(self.settings)
         log.info("detector backend: %s", self.detector.describe())
 
+
+
         for camera in self.db.list_cameras():
             if not camera.enabled:
                 continue
@@ -106,6 +123,28 @@ class NodeRuntime:
         await self.sync.start()
         log.info("edge node %s ready with %d camera(s)",
                  self.settings.node_id, len(self.pipelines))
+
+    def _record_plate_read(self, entry: dict[str, Any]) -> None:
+        self.recent_plate_reads.append(entry)
+        if len(self.recent_plate_reads) > 200:
+            del self.recent_plate_reads[:-200]
+
+    def _plate_reader_for(self, camera: Camera, source) -> Any:
+        """A plate reader for this camera, called lazily once it is certified.
+
+        Readers are shared per source kind so the ONNX sessions are loaded at
+        most once each, and only when some camera has actually earned the right
+        to read plates.
+        """
+        simulated = bool(getattr(source, "is_simulated", False))
+        key = ("sim" if simulated else "real")
+        if key not in self._plate_readers:
+            self._plate_readers[key] = build_plate_reader(
+                self.settings, simulated_source=simulated)
+            if self._plate_readers[key]:
+                log.info("ANPR backend (%s sources): %s", key,
+                         self._plate_readers[key].describe())
+        return self._plate_readers[key]
 
     async def add_pipeline(self, camera: Camera) -> None:
         try:
@@ -119,6 +158,9 @@ class NodeRuntime:
             evidence_store=self.evidence, ledger=self.ledger,
             normalcy=self.normalcy, meter=self.sync.meter,
             governor=self.governor,
+            plate_reader_factory=self._plate_reader_for,
+            on_plate_read=self._record_plate_read,
+            repeat_plates=self.repeat_plates,
         )
         self.pipelines[camera.camera_id] = pipeline
         await pipeline.start()
@@ -249,6 +291,11 @@ async def system_status(principal: Principal = Depends(current_principal)):
         "sync": runtime.sync.status(),
         "alerting": runtime.governor.status(),
         "detector": runtime.detector.describe() if runtime.detector else {},
+        "anpr": ({"enabled": True,
+                  "backends": [r.describe() for r in runtime._plate_readers.values() if r]}
+                 if runtime._plate_readers
+                 else {"enabled": False,
+                       "note": "no camera on this node is certified for ANPR yet"}),
         "cameras": [p.status() for p in runtime.pipelines.values()],
     }
 
@@ -574,6 +621,47 @@ async def feedback_summary(principal: Principal = Depends(current_principal)):
     }
 
 
+@app.get("/api/anpr/plates", tags=["anpr"])
+async def anpr_plates(principal: Principal = Depends(current_principal)):
+    """Plate sightings held on this node.
+
+    Deliberately counts and timestamps only. This is not a movement profile of
+    an identified person: it records that a registration was seen by a camera at
+    a time, which is what the repeat-entity signal needs and nothing more. See
+    docs/privacy.md.
+    """
+    if not runtime._plate_readers:
+        return {"enabled": False,
+                "note": ("no camera on this node is certified for plate reading, "
+                         "or none has finished profiling yet"),
+                "plates": []}
+
+    tracker = runtime.repeat_plates
+    plates = []
+    for plate, sightings in tracker.sightings.items():
+        plates.append({
+            "plate": plate,
+            "sightings": len(sightings),
+            "cameras": sorted({s.camera_id for s in sightings}),
+            "first_seen": min(s.at for s in sightings).isoformat(),
+            "last_seen": max(s.at for s in sightings).isoformat(),
+            "night_sightings": sum(1 for s in sightings
+                                   if tracker._is_unusual_hour(s.at)),
+            "mean_confidence": round(
+                sum(s.confidence for s in sightings) / len(sightings), 3),
+        })
+    plates.sort(key=lambda p: p["sightings"], reverse=True)
+    return {
+        "enabled": True,
+        "backends": [r.describe() for r in runtime._plate_readers.values() if r],
+        "recent_reads": runtime.recent_plate_reads[-40:],
+        "window_hours": tracker.window_hours,
+        "plates": plates,
+        "note": ("Plates read on simulated imagery are synthetic demonstration "
+                 "data and are not real vehicle registrations."),
+    }
+
+
 # =====================================================================
 # Demo controls
 # =====================================================================
@@ -641,9 +729,11 @@ async def demo_action(req: DemoAction, principal: Principal = Depends(require("o
         return {"status": "injected", "camera_id": camera_id, "actor_ids": ids}
 
     if action == "vehicle":
-        actor = sim.inject_vehicle(plate=req.plate or "DEMO-PLATE")
+        actor = sim.inject_vehicle(plate=req.plate or "WB24AB1234")
         return {"status": "injected", "camera_id": camera_id, "actor_id": actor,
-                "note": "synthetic plate; clearly labelled as demo data"}
+                "note": "synthetic plate, labelled as demo data; it will only be "
+                        "read once the vehicle enters the image band this "
+                        "camera is certified for"}
 
     if action == "tamper":
         mode = req.mode or "covered"

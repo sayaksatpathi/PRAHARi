@@ -26,7 +26,7 @@ invent any of them. The contribution is the **deployment architecture**.
 
 ---
 
-## The five things that are actually different
+## The six things that are actually different
 
 **1. Capability profiling is measured, not declared.**
 Most systems ask an operator what a camera can do. Prahari measures: effective
@@ -40,8 +40,13 @@ Certificate** against the IEC 62676-4 DORI bands. Analytics are granted **per
 image region**, because a camera's near field routinely supports plate reading
 while its far field barely supports noticing a person is present.
 
-Verified: across five simulated cameras the self-calibration recovers the true
-mounting height to **0.0 % error** (`scripts/smoke_profiling.py`).
+Verified against known truth: on clean ground truth the self-calibration recovers
+each camera's mounting height exactly, and **against the live pipeline** — with a
+noisy detector, class confusion and misclassified livestock in the samples — it
+lands within **0.4–3.2 %** across the five-camera fleet. Getting there took four
+separate fixes, each of which had produced a *confidently wrong* answer rather
+than an obviously broken one; they are written up in
+[docs/camera-profiling.md](docs/camera-profiling.md).
 
 **2. Two doctrines, because India's borders are not one problem.**
 Fenced sectors run tripwire and restricted-zone rules, where crossing the line
@@ -63,14 +68,21 @@ Measured effect during development: fixing duplicate suppression and zone-scoped
 normalcy took a 90-second window from **1064 events to 138**, with the governor
 recording 81 % of them without interrupting anyone.
 
-**4. Evidence is sealed into a hash chain.**
+**4. ANPR that refuses to guess.** Plate reading runs only where the certificate
+grants it *and* only inside the image band that reaches 250 px/m. In a traced
+approach the system declines to read a plainly visible, 118 px-wide plate, then
+reads it three frames later once the vehicle crosses into the certified band.
+Repeat-plate analysis across the camera set is the highest-value open-border
+signal, and only dependable reads feed it. See [docs/anpr.md](docs/anpr.md).
+
+**5. Evidence is sealed into a hash chain.**
 Every event commits to the hash of the one before it, so altering or removing any
 event breaks every link that follows. This exists specifically because of the
 offline story: a node disconnected for three days is asking the sector core to
 accept a backlog on trust, and the chain makes that checkable.
 *Tamper-evident, not tamper-proof* — see [Limitations](#limitations).
 
-**5. Offline is the design point, not a failure case.**
+**6. Offline is the design point, not a failure case.**
 Detection never depends on the link. Metadata is pushed, video is pulled. Under
 storage pressure clips are dropped, records never are. Clock drift during a long
 outage is corrected at the core without overwriting what the node observed.
@@ -127,8 +139,8 @@ the simulated scene and then leaves the real pipeline to find it — nothing
 fabricates an event.
 
 **1. Cameras are not alike.** Open **Camera Capability**. Five cameras, five
-different measured profiles. The gate camera is granted ANPR in the lower ~22 %
-of its frame; the 62° perimeter dome is refused it outright; the night approach
+different measured profiles. The gate camera is granted ANPR in the lower quarter
+of its frame only; the 62° perimeter dome is refused it outright; the night approach
 camera is refused it at 93 px/m against the 250 px/m the standard requires. Every
 refusal states its measured reason.
 
@@ -174,6 +186,7 @@ core aggregates, corrects clock drift, verifies chains, and touches no camera.
 
 | Layer | Choice | Why |
 |---|---|---|
+| ANPR | fast-alpr (MIT), ONNX | Plate detection and OCR both in ONNX, so it adds a model rather than a framework — no torch |
 | Inference | ONNX Runtime | ~50 MB vs ~2.5 GB; one code path for CPU and CUDA; avoids the AGPL-3.0 licence attached to Ultralytics YOLO, which is a real procurement consideration for a government deployment |
 | Edge storage | SQLite (WAL, `synchronous=FULL`) | Survives power loss with no server process to babysit — which is what an unattended outpost node needs |
 | Message bus | In-process, NATS-shaped subjects | A broker is a process to install and fail, for no gain at edge scale. Subjects and schemas match JetStream, so the transport is one file to swap |
@@ -199,6 +212,7 @@ Interactive documentation at `/docs` on a running node.
 | GET | `/api/events` | Event log, filterable |
 | GET | `/api/events/{id}/evidence/{frame\|thumb\|clip}` | Evidence retrieval |
 | POST | `/api/alerts/{id}/acknowledge` | Acknowledge, with true-positive / false-alarm feedback |
+| GET | `/api/anpr/plates` | Plate reads and repeat-entity history |
 | POST | `/api/demo/action` | Drive the demonstration |
 | WS | `/ws` | Live detections, events, status |
 
@@ -270,6 +284,10 @@ one that has them.
 - **The MJPEG preview endpoint is unauthenticated.** Browsers cannot attach an
   Authorization header to an `<img>`, and tokens in query strings would write
   credentials into every access log. Short-lived signed stream URLs are the fix.
+- **The real ANPR backend is not validated.** fast-alpr loads and runs, but a
+  model trained on photographs finds nothing in synthetic imagery, so its
+  accuracy is demonstrated by nothing in this repository. Plates shown in the
+  demo come from the synthetic reader and are labelled as such.
 - **Face recognition is deliberately absent.** Our own profiling shows almost no
   perimeter camera meets the pixels-on-target threshold for identification.
   Shipping it would be dishonest, and it carries legal and privacy requirements a
@@ -283,18 +301,19 @@ one that has them.
 
 The gap between this and something deployable, in priority order:
 
-1. **Cross-camera track handoff.** A camera topology graph with learnt transition
+1. **Real-footage validation.** The single most valuable remaining item. The
+   ANPR backend in particular is wired and running but its accuracy is
+   demonstrated by nothing here, because a real plate model finds nothing in
+   synthetic imagery.
+2. **Cross-camera track handoff.** A camera topology graph with learnt transition
    times turns five independent cameras into one corridor. *Seen at CAM-3 heading
    north-east, appeared at CAM-7, never reached CAM-9* is an intelligence product;
    three separate events are not.
-2. **ANPR** via [fast-alpr](https://github.com/ankandrew/fast-alpr) (MIT, ONNX)
-   behind the existing capability gate, plus repeat-plate analysis across the
-   checkpost graph — the highest-value open-border signal.
-3. **Friendly-force suppression.** SSB patrols walk the same routes and trip every
+3. **MediaMTX** for genuine RTSP ingestion, closing the last gap between the
+   demo path and a real deployment.
+4. **Friendly-force suppression.** SSB patrols walk the same routes and trip every
    rule. Patrol-schedule ingestion is the single biggest remaining false-alarm
    source.
-4. **Real RTSP demo path** via [MediaMTX](https://github.com/bluenviron/mediamtx)
-   (MIT), serving downloaded footage as genuine RTSP streams.
 5. **Thermal-specific models.** Real border night capability is thermal, and an
    RGB model on a thermal feed is a compromise.
 6. **Replay/evaluation harness** producing precision, recall and false-alarm rate

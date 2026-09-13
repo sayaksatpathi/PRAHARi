@@ -413,11 +413,34 @@ class SimulatedCamera(VideoSource):
     def inject_vehicle(self, plate: str | None = None,
                        cls: ObjectClass = ObjectClass.TRUCK) -> int:
         z_near, z_far = self.visible_depth_range(ACTOR_SIZE.get(cls, (3.2, 2.5))[0])
+        # A vehicle taller than the camera has no far limit from the head-room
+        # test, so z_far comes back as the clamp and the vehicle would be spawned
+        # at ~150 m travelling at 17 m/s - past the camera before its plate is
+        # ever large enough to read. Hold it inside the usable band and let it
+        # approach at a road-plausible speed.
+        if self._usable_far_m:
+            z_far = min(z_far, self._usable_far_m)
+        start_z = z_far * 0.92
+        approach = max(2.0, min(9.0, (z_far - z_near) / 9.0))
+
+        # Lateral offset has to be derived from the field of view, not fixed. A
+        # hardcoded 6 m puts the vehicle outside a 28-degree gate camera's frame
+        # entirely - the visible half-width at 17 m is only about 4 m - so it was
+        # spawned off-frame, never rendered, and ANPR had nothing to read while
+        # appearing to be correctly configured.
+        half_width_m = start_z * math.tan(math.radians(self.fov_deg / 2.0))
+        start_x = half_width_m * 0.30
+
+        # Converge on the optical axis over the approach, so the vehicle stays in
+        # frame all the way in rather than drifting out of the side.
+        travel_time = max(1.0, (start_z - max(z_near, 4.0)) / approach)
+
         actor = Actor(
             actor_id=self._next_actor_id,
             object_class=cls,
-            x=6.0, z=z_far * 0.92, vx=-0.4,
-            vz=-max(1.5, (z_far - z_near) / 9.0),
+            x=start_x, z=start_z,
+            vx=-start_x / travel_time,
+            vz=-approach,
             t_spawn=self._sim_time,
             t_despawn=self._sim_time + 60.0,
             label="demo_vehicle",
