@@ -140,15 +140,31 @@ def test_ground_plane_recovers_true_camera_height():
 
 
 def test_profiler_waits_for_calibration_samples():
-    """Frame count alone must not be enough to certify a camera."""
+    """Frame count alone must not be enough to certify a camera.
+
+    Readiness requires both enough samples AND enough depth spread among them:
+    samples clustered at one depth cannot constrain a horizon, and certifying on
+    count alone handed the fit a cluster it then rejected. So this checks two
+    negatives (no samples, and clustered samples) before the positive case with
+    real spread.
+    """
     profiler = CameraProfiler("T", min_frames=5, min_ground_samples=8,
                               max_frames=1000)
     img = np.zeros((120, 160, 3), dtype=np.uint8)
     for i in range(40):
         profiler.observe_frame(img, float(i))
     assert not profiler.ready, "must not certify with zero geometry samples"
+
+    # Eight samples, but clustered in a 7-row band with almost no size range -
+    # enough in number, useless for a fit. Must still refuse.
     for i in range(8):
-        profiler.observe_person(foot_v=100 - i, px_height=40 + i)
+        profiler.observe_person(foot_v=100 - i, px_height=40 + i * 0.2)
+    assert not profiler.ready, "must not certify from samples clustered at one depth"
+
+    # Now samples spanning real depth: near (row 118, tall) to far (row 40,
+    # short). These can constrain a horizon, so readiness fires.
+    for foot_v, px_h in [(118, 90), (100, 62), (80, 44), (60, 30), (45, 22)]:
+        profiler.observe_person(foot_v=float(foot_v), px_height=float(px_h))
     assert profiler.ready
 
 

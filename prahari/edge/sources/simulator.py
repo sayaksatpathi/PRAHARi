@@ -394,12 +394,23 @@ class SimulatedCamera(VideoSource):
         """
         _, z_far = self.visible_depth_range()
         start_z = min(self.fence_distance_m + 22.0, z_far * 0.95)
+
+        # Lateral start derived from the field of view, not a fixed -14 m. On a
+        # narrow gate camera (28 degrees) the visible half-width at ~30 m is only
+        # a few metres, so a hardcoded offset put the intruder off-frame - the
+        # subject was never seen and the scripted incident silently produced no
+        # event. The intruder starts within the frame and converges on the
+        # optical axis as it approaches, so it stays visible all the way in.
+        half_width_m = start_z * math.tan(math.radians(self.fov_deg / 2.0))
+        start_x = max(-abs(from_x), -half_width_m * 0.55)
+        travel_time = max(1.0, (start_z - max(self.fence_distance_m * 0.5, 4.0)) / speed)
+
         actor = Actor(
             actor_id=self._next_actor_id,
             object_class=ObjectClass.PERSON,
-            x=from_x,
+            x=start_x,
             z=start_z,
-            vx=0.35,
+            vx=-start_x / travel_time,
             vz=-speed,
             t_spawn=self._sim_time + approach_seconds,
             t_despawn=self._sim_time + approach_seconds + 90.0,

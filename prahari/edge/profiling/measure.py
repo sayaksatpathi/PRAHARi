@@ -246,9 +246,34 @@ class CameraProfiler:
         """
         if self.acc.frames < self.min_frames:
             return False
-        if len(self.acc.ground) >= self.min_ground_samples:
+        if len(self.acc.ground) >= self.min_ground_samples and self._has_leverage():
             return True
+        # Deadline: certify even without a usable fit rather than run no analytics
+        # at all. The measurement will honestly report that geometry is unknown.
         return self.acc.frames >= self.max_frames
+
+    def _has_leverage(self) -> bool:
+        """Do the accumulated samples span enough depth to fit a horizon?
+
+        Sample count alone is the wrong readiness test. A camera with heavy foot
+        traffic accumulates dozens of observations in the first few seconds, but
+        if they are all at similar depths they all land at nearly the same image
+        row and the same apparent size, and extrapolating a horizon from that
+        magnifies small errors enormously. Declaring "ready" on count then handed
+        the fit a cluster it correctly rejected, and the camera was certified with
+        no geometry. Readiness must wait for spread, not just for numbers. The
+        thresholds mirror the leverage guard in the fit itself, so the two never
+        disagree.
+        """
+        ground = self.acc.ground
+        if len(ground) < self.min_ground_samples:
+            return False
+        v = np.array([s.foot_v for s in ground], dtype=np.float64)
+        ph = np.array([s.px_height for s in ground], dtype=np.float64)
+        v_lo, v_hi = np.percentile(v, [5, 95])
+        ph_lo, ph_hi = np.percentile(ph, [5, 95])
+        img_h = float(self.acc.height or 1)
+        return (v_hi - v_lo) >= 0.10 * img_h and (ph_hi / max(ph_lo, 1e-6)) >= 1.6
 
     @property
     def progress(self) -> dict[str, float]:

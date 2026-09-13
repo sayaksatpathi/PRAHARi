@@ -130,6 +130,19 @@ once to the node console on first start.
 simulator's known truth. `smoke_e2e.py` drives the three demonstration moments
 against a running node and checks each actually happened.
 
+### Evaluation report
+
+```bash
+python scripts/evaluate.py            # deterministic replay harness
+```
+
+Writes `var/eval/evaluation.html`: intruder detection, latency, alert
+suppression, profiling accuracy and per-class detection, scored against ground
+truth the harness controls. It is explicit about which numbers are real and
+which are plumbing checks — on the simulated fleet, detection accuracy
+characterises the synthetic detector, while profiling error (0.2–2.2%) and alert
+suppression (71–97%) are genuine. See [docs/evaluation.md](docs/evaluation.md).
+
 ### Ingesting real RTSP
 
 ```bash
@@ -227,6 +240,7 @@ Interactive documentation at `/docs` on a running node.
 | POST | `/api/alerts/{id}/acknowledge` | Acknowledge, with true-positive / false-alarm feedback |
 | GET | `/api/anpr/plates` | Plate reads and repeat-entity history |
 | POST | `/api/cameras/{id}/test` | Probe a real RTSP stream |
+| — | `scripts/evaluate.py` | Deterministic evaluation harness → HTML report |
 | POST | `/api/demo/action` | Drive the demonstration |
 | WS | `/ws` | Live detections, events, status |
 
@@ -315,12 +329,14 @@ one that has them.
 
 The gap between this and something deployable, in priority order:
 
-1. **Real-footage validation.** The single most valuable remaining item, and now
-   the blocker for two others. Measured during v0.2: a COCO-trained detector
-   scores **0.33 ("bird")** on a rendered frame, and fast-alpr finds no plate at
-   all. Both real models are wired, load and run — their accuracy is demonstrated
-   by nothing here, because synthetic imagery is not photographic. Real footage
-   unblocks the RTSP path, ANPR validation, and any accuracy claim at all.
+1. **Real-footage validation.** The evaluation harness is now built
+   (`scripts/evaluate.py`, [docs/evaluation.md](docs/evaluation.md)) and produces
+   a scored report against ground truth. What remains is feeding it real footage
+   and a real model: a COCO-trained detector scores **0.33 ("bird")** on a
+   rendered frame and fast-alpr finds no plate, because synthetic imagery is not
+   photographic. `scripts/fetch_datasets.py` lists the licence-clean public
+   datasets. This is the step that turns the harness's labelled numbers into
+   claims.
 2. **Cross-camera track handoff.** A camera topology graph with learnt transition
    times turns five independent cameras into one corridor. *Seen at CAM-3 heading
    north-east, appeared at CAM-7, never reached CAM-9* is an intelligence product;
