@@ -1,0 +1,457 @@
+"""SQLite storage for the Prahari edge node.
+
+Why SQLite and not Postgres at the edge: a border outpost node must survive
+power loss and run for days with no operator and no network. A single-file
+WAL database with synchronous=FULL on the event path gives durable, crash-safe
+writes with no server process to babysit. The sector core uses the same schema
+and can be pointed at Postgres later; nothing above this layer knows which.
+
+Raw sqlite3 is used rather than an ORM because the offline/durability semantics
+(WAL, checkpointing, the append-only evidence ledger) are the point of this
+module, and an ORM would hide exactly the behaviour we need to control.
+"""
+from __future__ import annotations
+
+import json
+import sqlite3
+import threading
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Iterable
+
+from prahari.common.models import (
+    CapabilityCertificate,
+    Camera,
+    Event,
+    SyncState,
+    Zone,
+)
+
+SCHEMA_VERSION = 1
+
+SCHEMA = """
+PRAGMA journal_mode=WAL;
+PRAGMA foreign_keys=ON;
+
+CREATE TABLE IF NOT EXISTS schema_meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS cameras (
+    camera_id   TEXT PRIMARY KEY,
+    payload     TEXT NOT NULL,          -- full Camera JSON incl. credentials
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS zones (
+    zone_id     TEXT PRIMARY KEY,
+    camera_id   TEXT NOT NULL,
+    payload     TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_zones_camera ON zones(camera_id);
+
+CREATE TABLE IF NOT EXISTS certificates (
+    certificate_id TEXT PRIMARY KEY,
+    camera_id      TEXT NOT NULL,
+    version        INTEGER NOT NULL,
+    issued_at      TEXT NOT NULL,
+    digest         TEXT NOT NULL,
+    payload        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_cert_camera ON certificates(camera_id, version DESC);
+
+CREATE TABLE IF NOT EXISTS events (
+    event_id      TEXT PRIMARY KEY,
+    camera_id     TEXT NOT NULL,
+    node_id       TEXT NOT NULL,
+    event_type    TEXT NOT NULL,
+    priority      TEXT NOT NULL,
+    priority_rank INTEGER NOT NULL,
+    score         REAL NOT NULL,
+    ts            TEXT NOT NULL,           -- ISO8601 UTC
+    ts_epoch      REAL NOT NULL,           -- for fast range queries
+    monotonic_ns  INTEGER NOT NULL DEFAULT 0,
+    clock_synced  INTEGER NOT NULL DEFAULT 1,
+    track_id      INTEGER,
+    object_class  TEXT,
+    zone_id       TEXT,
+    sync_state    TEXT NOT NULL,
+    acknowledged  INTEGER NOT NULL DEFAULT 0,
+    alerted       INTEGER NOT NULL DEFAULT 1,
+    feedback      TEXT,
+    ledger_index  INTEGER NOT NULL DEFAULT 0,
+    prev_hash     TEXT NOT NULL DEFAULT '',
+    entry_hash    TEXT NOT NULL DEFAULT '',
+    evidence_bytes INTEGER NOT NULL DEFAULT 0,
+    payload       TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_events_ts     ON events(ts_epoch DESC);
+CREATE INDEX IF NOT EXISTS idx_events_sync   ON events(sync_state, ts_epoch);
+CREATE INDEX IF NOT EXISTS idx_events_camera ON events(camera_id, ts_epoch DESC);
+CREATE INDEX IF NOT EXISTS idx_events_prio   ON events(priority_rank DESC, ts_epoch DESC);
+
+-- Learnt pattern of life. One row per camera x zone x hour-of-week bucket.
+-- This is what lets an open-border deployment treat the 10:00 market crowd as
+-- normal and the 02:00 single walker as worth a look.
+CREATE TABLE IF NOT EXISTS normalcy (
+    camera_id   TEXT NOT NULL,
+    zone_id     TEXT NOT NULL DEFAULT '',
+    object_class TEXT NOT NULL,
+    hour_of_week INTEGER NOT NULL,        -- 0..167
+    count       REAL NOT NULL DEFAULT 0,
+    updated_at  TEXT NOT NULL,
+    PRIMARY KEY (camera_id, zone_id, object_class, hour_of_week)
+);
+
+-- Operator feedback, aggregated per camera+event type, used to retune
+-- thresholds so the false-alarm rate actually falls over time.
+CREATE TABLE IF NOT EXISTS feedback_stats (
+    camera_id    TEXT NOT NULL,
+    event_type   TEXT NOT NULL,
+    true_positive INTEGER NOT NULL DEFAULT 0,
+    false_alarm   INTEGER NOT NULL DEFAULT 0,
+    updated_at   TEXT NOT NULL,
+    PRIMARY KEY (camera_id, event_type)
+);
+
+CREATE TABLE IF NOT EXISTS users (
+    username     TEXT PRIMARY KEY,
+    role         TEXT NOT NULL,           -- admin | operator | viewer
+    salt         TEXT NOT NULL,
+    pw_hash      TEXT NOT NULL,
+    created_at   TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts         TEXT NOT NULL,
+    actor      TEXT NOT NULL,
+    action     TEXT NOT NULL,
+    target     TEXT NOT NULL DEFAULT '',
+    detail     TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts DESC);
+"""
+
+
+def _iso(dt: datetime) -> str:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).isoformat()
+
+
+class Database:
+    """Thread-safe SQLite wrapper.
+
+    One connection guarded by a lock. The workload is a handful of writes per
+    second across a dozen camera pipelines, so a connection pool would add
+    complexity for no measurable gain, and a single writer sidesteps SQLite's
+    writer contention entirely.
+    """
+
+    def __init__(self, path: Path | str) -> None:
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.RLock()
+        self._conn = sqlite3.connect(
+            str(self.path), check_same_thread=False, isolation_level=None
+        )
+        self._conn.row_factory = sqlite3.Row
+        with self._lock:
+            self._conn.executescript(SCHEMA)
+            # Events are the thing we must not lose after an unclean shutdown.
+            self._conn.execute("PRAGMA synchronous=FULL")
+            self._conn.execute(
+                "INSERT OR REPLACE INTO schema_meta(key, value) VALUES('version', ?)",
+                (str(SCHEMA_VERSION),),
+            )
+
+    def close(self) -> None:
+        with self._lock:
+            self._conn.close()
+
+    # -- low level ------------------------------------------------------
+    def execute(self, sql: str, params: Iterable[Any] = ()) -> sqlite3.Cursor:
+        with self._lock:
+            return self._conn.execute(sql, tuple(params))
+
+    def query(self, sql: str, params: Iterable[Any] = ()) -> list[sqlite3.Row]:
+        with self._lock:
+            return self._conn.execute(sql, tuple(params)).fetchall()
+
+    def query_one(self, sql: str, params: Iterable[Any] = ()) -> sqlite3.Row | None:
+        rows = self.query(sql, params)
+        return rows[0] if rows else None
+
+    # -- cameras --------------------------------------------------------
+    def upsert_camera(self, cam: Camera) -> None:
+        now = _iso(datetime.now(timezone.utc))
+        self.execute(
+            """INSERT INTO cameras(camera_id, payload, created_at, updated_at)
+               VALUES(?,?,?,?)
+               ON CONFLICT(camera_id) DO UPDATE SET payload=excluded.payload,
+                                                    updated_at=excluded.updated_at""",
+            (cam.camera_id, cam.model_dump_json(), now, now),
+        )
+
+    def get_camera(self, camera_id: str) -> Camera | None:
+        row = self.query_one("SELECT payload FROM cameras WHERE camera_id=?", (camera_id,))
+        return Camera.model_validate_json(row["payload"]) if row else None
+
+    def list_cameras(self) -> list[Camera]:
+        rows = self.query("SELECT payload FROM cameras ORDER BY camera_id")
+        return [Camera.model_validate_json(r["payload"]) for r in rows]
+
+    def delete_camera(self, camera_id: str) -> bool:
+        cur = self.execute("DELETE FROM cameras WHERE camera_id=?", (camera_id,))
+        self.execute("DELETE FROM zones WHERE camera_id=?", (camera_id,))
+        return cur.rowcount > 0
+
+    # -- zones ----------------------------------------------------------
+    def upsert_zone(self, zone: Zone) -> None:
+        self.execute(
+            """INSERT INTO zones(zone_id, camera_id, payload, updated_at)
+               VALUES(?,?,?,?)
+               ON CONFLICT(zone_id) DO UPDATE SET payload=excluded.payload,
+                                                  camera_id=excluded.camera_id,
+                                                  updated_at=excluded.updated_at""",
+            (zone.zone_id, zone.camera_id, zone.model_dump_json(),
+             _iso(datetime.now(timezone.utc))),
+        )
+
+    def list_zones(self, camera_id: str | None = None) -> list[Zone]:
+        if camera_id:
+            rows = self.query("SELECT payload FROM zones WHERE camera_id=?", (camera_id,))
+        else:
+            rows = self.query("SELECT payload FROM zones")
+        return [Zone.model_validate_json(r["payload"]) for r in rows]
+
+    def delete_zone(self, zone_id: str) -> bool:
+        return self.execute("DELETE FROM zones WHERE zone_id=?", (zone_id,)).rowcount > 0
+
+    # -- certificates ---------------------------------------------------
+    def save_certificate(self, cert: CapabilityCertificate) -> None:
+        self.execute(
+            """INSERT OR REPLACE INTO certificates
+               (certificate_id, camera_id, version, issued_at, digest, payload)
+               VALUES(?,?,?,?,?,?)""",
+            (cert.certificate_id, cert.camera_id, cert.version,
+             _iso(cert.issued_at), cert.digest, cert.model_dump_json()),
+        )
+
+    def latest_certificate(self, camera_id: str) -> CapabilityCertificate | None:
+        row = self.query_one(
+            "SELECT payload FROM certificates WHERE camera_id=? ORDER BY version DESC LIMIT 1",
+            (camera_id,),
+        )
+        return CapabilityCertificate.model_validate_json(row["payload"]) if row else None
+
+    def next_certificate_version(self, camera_id: str) -> int:
+        row = self.query_one(
+            "SELECT MAX(version) AS v FROM certificates WHERE camera_id=?", (camera_id,)
+        )
+        return int((row["v"] or 0) + 1) if row else 1
+
+    # -- events ---------------------------------------------------------
+    def insert_event(self, ev: Event) -> None:
+        ev_bytes = ev.evidence.size_bytes if ev.evidence else 0
+        self.execute(
+            """INSERT OR REPLACE INTO events
+               (event_id, camera_id, node_id, event_type, priority, priority_rank,
+                score, ts, ts_epoch, monotonic_ns, clock_synced, track_id,
+                object_class, zone_id, sync_state, acknowledged, alerted, feedback,
+                ledger_index, prev_hash, entry_hash, evidence_bytes, payload)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                ev.event_id, ev.camera_id, ev.node_id, ev.event_type.value,
+                ev.priority.value, ev.priority.rank, ev.priority_score,
+                _iso(ev.timestamp), ev.timestamp.timestamp(), ev.monotonic_ns,
+                int(ev.clock_synced), ev.track_id, ev.object_class.value,
+                ev.zone_id, ev.sync_state.value, int(ev.acknowledged),
+                int(ev.alerted),
+                ev.operator_feedback, ev.ledger_index, ev.prev_hash,
+                ev.entry_hash, ev_bytes, ev.model_dump_json(),
+            ),
+        )
+
+    def get_event(self, event_id: str) -> Event | None:
+        row = self.query_one("SELECT payload FROM events WHERE event_id=?", (event_id,))
+        return Event.model_validate_json(row["payload"]) if row else None
+
+    def list_events(
+        self,
+        limit: int = 100,
+        offset: int = 0,
+        camera_id: str | None = None,
+        min_rank: int = 0,
+        unacknowledged_only: bool = False,
+        sync_state: SyncState | None = None,
+        alerted_only: bool = False,
+    ) -> list[Event]:
+        sql = "SELECT payload FROM events WHERE priority_rank >= ?"
+        params: list[Any] = [min_rank]
+        if alerted_only:
+            sql += " AND alerted = 1"
+        if camera_id:
+            sql += " AND camera_id = ?"
+            params.append(camera_id)
+        if unacknowledged_only:
+            sql += " AND acknowledged = 0"
+        if sync_state:
+            sql += " AND sync_state = ?"
+            params.append(sync_state.value)
+        sql += " ORDER BY ts_epoch DESC LIMIT ? OFFSET ?"
+        params += [limit, offset]
+        return [Event.model_validate_json(r["payload"]) for r in self.query(sql, params)]
+
+    def update_event(self, ev: Event) -> None:
+        self.insert_event(ev)
+
+    def count_events(self, sync_state: SyncState | None = None) -> int:
+        if sync_state:
+            row = self.query_one(
+                "SELECT COUNT(*) AS c FROM events WHERE sync_state=?", (sync_state.value,)
+            )
+        else:
+            row = self.query_one("SELECT COUNT(*) AS c FROM events")
+        return int(row["c"]) if row else 0
+
+    def alerts_since(self, epoch: float, min_rank: int = 2) -> int:
+        row = self.query_one(
+            "SELECT COUNT(*) AS c FROM events WHERE ts_epoch >= ? "
+            "AND priority_rank >= ? AND alerted = 1",
+            (epoch, min_rank),
+        )
+        return int(row["c"]) if row else 0
+
+    def last_ledger_entry(self) -> tuple[int, str]:
+        """Highest ledger index and its hash, for chaining the next entry."""
+        row = self.query_one(
+            "SELECT ledger_index, entry_hash FROM events ORDER BY ledger_index DESC LIMIT 1"
+        )
+        if not row:
+            return 0, ""
+        return int(row["ledger_index"]), str(row["entry_hash"])
+
+    def ledger_entries(self) -> list[tuple[int, str, str, str]]:
+        rows = self.query(
+            "SELECT ledger_index, prev_hash, entry_hash, event_id "
+            "FROM events WHERE ledger_index > 0 ORDER BY ledger_index ASC"
+        )
+        return [(int(r["ledger_index"]), r["prev_hash"], r["entry_hash"], r["event_id"])
+                for r in rows]
+
+    # -- sync queue -----------------------------------------------------
+    def pending_events(self, limit: int) -> list[Event]:
+        # Only chained events are eligible to leave the node: an unchained event
+        # is one whose evidence is still being captured, and shipping it would
+        # hand the core a record it cannot verify.
+        rows = self.query(
+            "SELECT payload FROM events WHERE sync_state IN (?, ?) "
+            "AND ledger_index > 0 "
+            "ORDER BY priority_rank DESC, ts_epoch ASC LIMIT ?",
+            (SyncState.PENDING.value, SyncState.FAILED.value, limit),
+        )
+        return [Event.model_validate_json(r["payload"]) for r in rows]
+
+    def queue_bytes(self) -> int:
+        row = self.query_one(
+            "SELECT COALESCE(SUM(evidence_bytes),0) AS b FROM events WHERE sync_state != ?",
+            (SyncState.SYNCED.value,),
+        )
+        return int(row["b"]) if row else 0
+
+    def eviction_candidates(self, limit: int = 50) -> list[Event]:
+        """Lowest-priority, oldest unsynced events that still hold evidence.
+
+        Under disk pressure Prahari drops evidence clips, never event metadata.
+        An event with no clip is degraded; an event that vanished is a gap in
+        the record.
+        """
+        rows = self.query(
+            "SELECT payload FROM events WHERE sync_state != ? AND evidence_bytes > 0 "
+            "ORDER BY priority_rank ASC, ts_epoch ASC LIMIT ?",
+            (SyncState.SYNCED.value, limit),
+        )
+        return [Event.model_validate_json(r["payload"]) for r in rows]
+
+    # -- normalcy -------------------------------------------------------
+    def bump_normalcy(self, camera_id: str, zone_id: str, object_class: str,
+                      hour_of_week: int, amount: float = 1.0) -> None:
+        self.execute(
+            """INSERT INTO normalcy(camera_id, zone_id, object_class, hour_of_week,
+                                    count, updated_at)
+               VALUES(?,?,?,?,?,?)
+               ON CONFLICT(camera_id, zone_id, object_class, hour_of_week)
+               DO UPDATE SET count = count + excluded.count,
+                             updated_at = excluded.updated_at""",
+            (camera_id, zone_id, object_class, hour_of_week, amount,
+             _iso(datetime.now(timezone.utc))),
+        )
+
+    def normalcy_count(self, camera_id: str, zone_id: str, object_class: str,
+                       hour_of_week: int) -> float:
+        row = self.query_one(
+            "SELECT count FROM normalcy WHERE camera_id=? AND zone_id=? "
+            "AND object_class=? AND hour_of_week=?",
+            (camera_id, zone_id, object_class, hour_of_week),
+        )
+        return float(row["count"]) if row else 0.0
+
+    def normalcy_total(self, camera_id: str, object_class: str,
+                       zone_id: str = "") -> float:
+        """Total learnt observations for this camera/class *within one zone*.
+
+        Scoping matters: comparing a single zone's hourly count against a
+        camera-wide total mixes two different denominators, and the ratio comes
+        out enormous for every zone that sees less traffic than the camera as a
+        whole - which is every zone. That made every event read as wildly
+        unusual and pinned the entire event stream at maximum priority.
+        """
+        row = self.query_one(
+            "SELECT COALESCE(SUM(count),0) AS c FROM normalcy "
+            "WHERE camera_id=? AND object_class=? AND zone_id=?",
+            (camera_id, object_class, zone_id or ""),
+        )
+        return float(row["c"]) if row else 0.0
+
+    # -- feedback -------------------------------------------------------
+    def record_feedback(self, camera_id: str, event_type: str, is_false_alarm: bool) -> None:
+        col = "false_alarm" if is_false_alarm else "true_positive"
+        self.execute(
+            f"""INSERT INTO feedback_stats(camera_id, event_type, {col}, updated_at)
+                VALUES(?,?,1,?)
+                ON CONFLICT(camera_id, event_type)
+                DO UPDATE SET {col} = {col} + 1, updated_at = excluded.updated_at""",
+            (camera_id, event_type, _iso(datetime.now(timezone.utc))),
+        )
+
+    def feedback_for(self, camera_id: str, event_type: str) -> tuple[int, int]:
+        row = self.query_one(
+            "SELECT true_positive, false_alarm FROM feedback_stats "
+            "WHERE camera_id=? AND event_type=?",
+            (camera_id, event_type),
+        )
+        if not row:
+            return 0, 0
+        return int(row["true_positive"]), int(row["false_alarm"])
+
+    def all_feedback(self) -> list[dict[str, Any]]:
+        rows = self.query("SELECT * FROM feedback_stats")
+        return [dict(r) for r in rows]
+
+    # -- audit ----------------------------------------------------------
+    def audit(self, actor: str, action: str, target: str = "", detail: Any = "") -> None:
+        if not isinstance(detail, str):
+            detail = json.dumps(detail, default=str)
+        self.execute(
+            "INSERT INTO audit_log(ts, actor, action, target, detail) VALUES(?,?,?,?,?)",
+            (_iso(datetime.now(timezone.utc)), actor, action, target, detail),
+        )
+
+    def list_audit(self, limit: int = 200) -> list[dict[str, Any]]:
+        return [dict(r) for r in
+                self.query("SELECT * FROM audit_log ORDER BY id DESC LIMIT ?", (limit,))]

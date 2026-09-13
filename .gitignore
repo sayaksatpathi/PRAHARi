@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+var/
+models/*.onnx
+*.db
+*.db-wal
+*.db-shm
+.env
+.pytest_cache/
+*.mp4
+*.avi
+footage/

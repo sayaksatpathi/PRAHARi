@@ -1,0 +1,27 @@
+# --- Prahari runtime dependencies ---
+# Deliberately minimal: every dependency here is load-bearing.
+# Lower bounds only. Pinning exact versions was tried and abandoned: it forced
+# multi-hundred-MB downloads over a link that a border deployment will not have,
+# when the already-present system packages were perfectly adequate.
+fastapi>=0.110
+uvicorn>=0.27
+pydantic>=2.6
+pydantic-settings>=2.2
+numpy>=1.24
+opencv-python-headless>=4.8    # or opencv-python if you want GUI windows
+httpx>=0.27
+
+# --- Inference (optional) ---
+# The pipeline runs without this: with no model present Prahari falls back to
+# the clearly-labelled synthetic detector. Install to run a real model.
+#
+# ONNX Runtime is used instead of PyTorch/Ultralytics on purpose:
+#   * ~50 MB instead of ~2.5 GB
+#   * one code path for CPU and CUDA
+#   * avoids the AGPL-3.0 licence attached to Ultralytics YOLO, which is a real
+#     procurement consideration for a government deployment.
+onnxruntime>=1.17
+# For CUDA (e.g. RTX 4050): pip install onnxruntime-gpu  (instead of onnxruntime)
+
+# --- Dev / test ---
+pytest>=8.0

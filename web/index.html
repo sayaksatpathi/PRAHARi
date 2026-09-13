@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prahari — Border Video Intelligence</title>
+<link rel="stylesheet" href="/ui/css/prahari.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='4' y='4' width='24' height='24' rx='4' fill='none' stroke='%233b9eff' stroke-width='3'/><rect x='11' y='11' width='10' height='10' rx='2' fill='%233b9eff'/></svg>">
+</head>
+<body>
+
+<!-- Login ------------------------------------------------------------- -->
+<div id="login" class="login-wrap">
+  <div class="panel login-card">
+    <div class="panel-head">
+      <div class="row">
+        <div class="brand-mark"></div>
+        <span class="brand-name">PRAHARI</span>
+      </div>
+    </div>
+    <div class="panel-body">
+      <p class="small dim" style="margin-top:0">
+        Border video-intelligence layer. Sign in to continue.
+      </p>
+      <form id="login-form">
+        <div class="field">
+          <label for="lg-user">Username</label>
+          <input id="lg-user" autocomplete="username" value="admin" required>
+        </div>
+        <div class="field">
+          <label for="lg-pass">Password</label>
+          <input id="lg-pass" type="password" autocomplete="current-password" required>
+        </div>
+        <div id="login-error" class="notice bad" style="display:none;margin-bottom:11px"></div>
+        <button class="primary" style="width:100%" type="submit">Sign in</button>
+      </form>
+      <p class="tiny faint" style="margin-bottom:0">
+        The initial administrator password is printed once to the node console on
+        first start.
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- Application ------------------------------------------------------- -->
+<div id="app" style="display:none">
+
+  <div class="brand">
+    <div class="brand-mark"></div>
+    <span class="brand-name">PRAHARI</span>
+  </div>
+
+  <div class="topbar">
+    <span class="badge b-neutral mono" id="tb-node">—</span>
+    <span class="badge" id="tb-link"><span class="dot"></span><span>—</span></span>
+    <span class="badge" id="tb-alerts">—</span>
+    <span class="badge b-neutral" id="tb-cameras">—</span>
+    <span class="badge" id="tb-queue">—</span>
+    <span class="spacer"></span>
+    <span class="badge" id="tb-detector" title="Which detector backend is running">—</span>
+    <span class="tiny dim mono" id="tb-clock">—</span>
+    <span class="tiny dim" id="tb-user">—</span>
+    <button class="sm" id="tb-logout">Sign out</button>
+  </div>
+
+  <nav class="sidebar">
+    <div class="nav-section">Operations</div>
+    <div class="nav-item active" data-view="dashboard"><span>Dashboard</span></div>
+    <div class="nav-item" data-view="cameras"><span>Live Cameras</span><span class="tiny faint" id="nav-cam-count"></span></div>
+    <div class="nav-item" data-view="alerts"><span>Alerts</span><span class="badge b-high tiny" id="nav-alert-count" style="display:none"></span></div>
+    <div class="nav-item" data-view="events"><span>Event Log</span></div>
+
+    <div class="nav-section">Configuration</div>
+    <div class="nav-item" data-view="capability"><span>Camera Capability</span></div>
+    <div class="nav-item" data-view="zones"><span>Zones &amp; Rules</span></div>
+
+    <div class="nav-section">Node</div>
+    <div class="nav-item" data-view="health"><span>System Health</span></div>
+    <div class="nav-item" data-view="integrity"><span>Evidence Integrity</span></div>
+    <div class="nav-item" data-view="demo"><span>Demonstration</span></div>
+  </nav>
+
+  <main class="main" id="view"></main>
+</div>
+
+<div id="toast"></div>
+<div id="modal-root"></div>
+
+<script src="/ui/js/api.js"></script>
+<script src="/ui/js/ui.js"></script>
+<script src="/ui/js/views.js"></script>
+<script src="/ui/js/app.js"></script>
+</body>
+</html>
