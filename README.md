@@ -133,7 +133,8 @@ against a running node and checks each actually happened.
 ### Evaluation report
 
 ```bash
-python scripts/evaluate.py            # deterministic replay harness
+python scripts/evaluate.py            # deterministic replay harness (simulator)
+python scripts/evaluate.py --mot <dir>  # real footage, real GT (MOT format)
 ```
 
 Writes `var/eval/evaluation.html`: intruder detection, latency, alert
@@ -329,14 +330,15 @@ one that has them.
 
 The gap between this and something deployable, in priority order:
 
-1. **Real-footage validation.** The evaluation harness is now built
-   (`scripts/evaluate.py`, [docs/evaluation.md](docs/evaluation.md)) and produces
-   a scored report against ground truth. What remains is feeding it real footage
-   and a real model: a COCO-trained detector scores **0.33 ("bird")** on a
-   rendered frame and fast-alpr finds no plate, because synthetic imagery is not
-   photographic. `scripts/fetch_datasets.py` lists the licence-clean public
-   datasets. This is the step that turns the harness's labelled numbers into
-   claims.
+1. **Real-footage validation.** The evaluation harness and a real-footage
+   adapter are built and tested: `prahari.eval.mot` ingests MOTChallenge
+   sequences with per-frame ground truth, and `scripts/evaluate.py --mot` scores
+   a real model's recall/precision against real annotations
+   ([docs/evaluation.md](docs/evaluation.md)). What remains is running the
+   multi-GB download on a normal connection — the build machine sustained only
+   ~0.1 MB/s, so the real numbers must be produced elsewhere. Everything
+   downstream of the download is done. VIRAT is set up but gated behind a signed
+   Data Protection Agreement, which is the deploying party's to accept.
 2. **Cross-camera track handoff.** A camera topology graph with learnt transition
    times turns five independent cameras into one corridor. *Seen at CAM-3 heading
    north-east, appeared at CAM-7, never reached CAM-9* is an intelligence product;

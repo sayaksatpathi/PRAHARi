@@ -38,15 +38,29 @@ class Dataset:
 
 DATASETS = [
     Dataset(
-        key="mot17-sample",
+        key="mot17",
         name="MOT17 (Multiple Object Tracking)",
         licence="CC BY-NC-SA 3.0 (research, non-commercial)",
-        relevance="Pedestrian detection and tracking in surveillance-like static "
-                  "camera views. The closest open proxy for the person-tracking "
-                  "half of the pipeline.",
+        relevance="Pedestrian detection and tracking with per-frame ground-truth "
+                  "boxes - the exact format prahari.eval.mot ingests, and the "
+                  "right dataset to produce real detection recall/precision "
+                  "through scripts/evaluate.py --mot. Treat it as a tracking "
+                  "benchmark, not a border dataset.",
         access="open",
         url="https://motchallenge.net/data/MOT17/",
-        direct=None,   # the full set is large; see notes rather than auto-pull
+        # ~5.86 GB. Direct, but see the connection note in download().
+        direct="https://motchallenge.net/data/MOT17.zip",
+    ),
+    Dataset(
+        key="mot17-labels",
+        name="MOT17 ground-truth labels only",
+        licence="CC BY-NC-SA 3.0 (research, non-commercial)",
+        relevance="The annotations without the ~5.9 GB of frames. Useful for "
+                  "inspecting the GT format the adapter parses, but detection "
+                  "cannot be scored without the images.",
+        access="open",
+        url="https://motchallenge.net/data/MOT17/",
+        direct="https://motchallenge.net/data/MOT17Labels.zip",
     ),
     Dataset(
         key="virat",
@@ -125,18 +139,54 @@ def download(key: str, out_dir: Path) -> int:
         print(f"footage/ and run scripts/evaluate.py --footage footage/.")
         return 2
 
+    import time
+
     import httpx
 
     out_dir.mkdir(parents=True, exist_ok=True)
     dest = out_dir / Path(ds.direct).name
-    print(f"Downloading {ds.name} sample from {ds.direct} ...")
-    with httpx.stream("GET", ds.direct, timeout=600, follow_redirects=True) as r:
-        r.raise_for_status()
-        with dest.open("wb") as fh:
-            for chunk in r.iter_bytes(1 << 20):
-                fh.write(chunk)
-    print(f"Saved {dest} ({dest.stat().st_size/1e6:.1f} MB).")
-    print("Note its licence:", ds.licence)
+
+    # Resume support: MOT17.zip is ~5.9 GB and a single stream is unlikely to
+    # survive a flaky link. Pick up from whatever bytes are already on disk.
+    existing = dest.stat().st_size if dest.exists() else 0
+    headers = {"Range": f"bytes={existing}-"} if existing else {}
+    mode = "ab" if existing else "wb"
+    if existing:
+        print(f"Resuming {ds.name}: {existing/1e6:.0f} MB already on disk.")
+    else:
+        print(f"Downloading {ds.name} from {ds.direct}")
+        print("Large datasets can be multi-GB; on a slow link this can take hours.")
+        print("The download resumes if interrupted - just run the command again.\n")
+
+    t0 = time.perf_counter()
+    got = existing
+    try:
+        with httpx.stream("GET", ds.direct, timeout=120, follow_redirects=True,
+                          headers=headers) as r:
+            if r.status_code not in (200, 206):
+                r.raise_for_status()
+            with dest.open(mode) as fh:
+                last = t0
+                for chunk in r.iter_bytes(1 << 20):
+                    fh.write(chunk)
+                    got += len(chunk)
+                    now = time.perf_counter()
+                    if now - last > 5:
+                        rate = (got - existing) / 1e6 / (now - t0 + 1e-9)
+                        print(f"  {got/1e6:.0f} MB  ({rate:.2f} MB/s)", flush=True)
+                        last = now
+    except KeyboardInterrupt:
+        print(f"\nInterrupted at {got/1e6:.0f} MB. Re-run to resume.")
+        return 130
+    except Exception as exc:
+        print(f"\nDownload failed at {got/1e6:.0f} MB: {exc}")
+        print("Re-run the same command to resume from where it stopped.")
+        return 1
+
+    print(f"\nSaved {dest} ({dest.stat().st_size/1e6:.1f} MB). Licence: {ds.licence}")
+    print("\nUnzip it, then run the harness against it:")
+    print(f"    python -c \"import zipfile; zipfile.ZipFile(r'{dest}').extractall(r'{out_dir}')\"")
+    print(f"    python scripts/evaluate.py --mot {out_dir} --max-sequences 2")
     return 0
 
 

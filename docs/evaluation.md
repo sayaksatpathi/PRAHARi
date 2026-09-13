@@ -74,26 +74,61 @@ node additionally applies a learnt pattern of life, not present in the harness,
 which damps the rate further — so the harness's alerted counts are an upper
 bound.
 
-## Running against real footage
+## Running against real footage (MOT format)
 
-This is the work that turns the labelled numbers into claims.
+This is the work that turns the labelled numbers into claims, and the path is
+built and tested. `prahari.eval.mot` ingests a MOTChallenge sequence — numbered
+frames plus a `gt/gt.txt` of per-frame boxes — and the harness scores a real
+detector's recall and precision against those real annotations through the same
+code that scores the simulator.
 
 ```bash
-# 1. a real, licence-clean model
-curl -L -o models/yolo.onnx \
-  https://github.com/Megvii-BaseDetection/YOLOX/releases/download/0.1.1rc0/yolox_tiny.onnx
+# 1. a real, licence-clean model (Apache-2.0)
+curl -L -o models/yolo.onnx   https://github.com/Megvii-BaseDetection/YOLOX/releases/download/0.1.1rc0/yolox_tiny.onnx
 
-# 2. real recordings in footage/ (see scripts/fetch_datasets.py)
-python scripts/fetch_datasets.py
+# 2. a real annotated dataset (see the connection note below on where this runs)
+python scripts/fetch_datasets.py --download mot17
 
 # 3. the same harness, now measuring a real model on real imagery
-python scripts/evaluate.py --footage footage/
+python scripts/evaluate.py --mot footage/real/MOT17/train --max-sequences 2
 ```
 
-`scripts/fetch_datasets.py` lists legitimate public datasets — MOT17, VIRAT,
+`--mot` runs a **detection-only** evaluation: real detection recall/precision per
+class, tracking counts, ground-plane self-calibration on real pedestrians, and
+throughput. The border-scenario metrics (intruder, latency, false-alarm
+suppression) do not apply to a street-pedestrian dataset with no fence, and are
+omitted rather than faked.
+
+The path is validated end to end by `tests/test_mot.py` against a self-made MOT
+fixture with known ground truth: a perfect detector scores recall 1.0, a blind
+one scores 0.0, and the real YOLOX model has been run through the adapter to
+confirm the integration (it reports ~18–20 fps and, correctly, finds nothing in
+the synthetic fixture frames). Only real annotated imagery is missing, and that
+needs the download.
+
+### The honest constraint on getting the data
+
+**The build machine's connection could not download these datasets.** It
+sustained roughly 0.1 MB/s to both GitHub and MOTChallenge, which makes MOT17's
+~5.9 GB a multi-hour-at-best proposition that repeatedly stalled. So the real
+numbers must be produced on a machine with a normal connection.
+`fetch_datasets.py` downloads with resume support — re-run to continue an
+interrupted transfer — and everything downstream of the download is already built
+and tested. This is an infrastructure limit, stated plainly, not an unfinished
+feature.
+
+`scripts/fetch_datasets.py` lists the legitimate public datasets — MOT17, VIRAT,
 UFPR-ALPR, AI City, Anti-UAV — with their licences and access terms. It downloads
-nothing by default and only the genuinely open ones on explicit request; the rest
-require registration or a signed agreement and must be obtained under their terms.
+nothing by default, and only the genuinely open ones (MOT17) on explicit request.
+
+### VIRAT
+
+VIRAT is gated behind a **signed Data Protection Agreement.** Accepting that is a
+legal commitment for the deploying party to make, not something this tooling does
+on anyone's behalf, so `fetch_datasets.py` will not fetch it — it points you at
+the agreement and the terms. Once obtained under those terms, VIRAT's videos drop
+into `footage/` and its activity annotations map onto the event-level metrics;
+the ingestion follows the same source-layer contract as everything else.
 
 **The standing caveat, unchanged:** no public dataset represents Indian border
 CCTV — night, range, fog, a decade-old fog-lensed dome. Component benchmarks on

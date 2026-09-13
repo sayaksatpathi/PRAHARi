@@ -50,6 +50,69 @@ def build_zones_for(camera, source):
     return demo_zones(camera, proxy)
 
 
+def run_mot(args, settings, detector) -> int:
+    """Evaluate real MOTChallenge sequences: real footage, real ground truth."""
+    from prahari.common.models import Camera, CameraRole
+    from prahari.eval.mot import MotSequenceSource, discover_sequences
+
+    sequences = discover_sequences(args.mot)
+    if not sequences:
+        print(f"No MOT sequences found under {args.mot}.")
+        print("Expected a directory with seqinfo.ini and img1/, or a dataset root.")
+        print("See scripts/fetch_datasets.py and docs/evaluation.md.")
+        return 1
+    if args.max_sequences:
+        sequences = sequences[:args.max_sequences]
+
+    if detector.describe().get("simulated"):
+        print("\n  WARNING: the SYNTHETIC detector is loaded. It sees nothing in")
+        print("  real footage - install a real model at models/yolo.onnx first,")
+        print("  or these numbers will be empty. See models/README.md.\n")
+
+    print(f"Evaluating {len(sequences)} MOT sequence(s) from {args.mot}\n")
+    results = []
+    for seq_dir in sequences:
+        source = MotSequenceSource(seq_dir)
+        camera = Camera(
+            camera_id=seq_dir.name, name=f"MOT sequence {seq_dir.name}",
+            role=CameraRole.APPROACH, source_kind="file",
+            claimed_width=source.width or 1920,
+            claimed_height=source.height or 1080,
+            claimed_fps=source.nominal_fps,
+        )
+        harness = EvaluationHarness(
+            camera=camera, source=source, detector=detector,
+            zones=[], settings=settings, true_camera_height_m=None,
+        )
+        # A generous profiling budget, capped so short sequences still evaluate.
+        seq_len = source._seq_length or 600
+        profile_frames = min(int(seq_len * 0.4), int(source.nominal_fps * 40))
+        eval_frames = seq_len
+
+        print(f"  {seq_dir.name}: {seq_len} frames "
+              f"({source.width}x{source.height} @ {source.nominal_fps:.0f} fps)...",
+              flush=True)
+        result = harness.run_detection_only(
+            profile_frames=profile_frames, eval_frames=eval_frames)
+        d = result.as_dict()
+        results.append(d)
+        det = d["detection"]
+        print(f"    recall={det['recall']:.3f} precision={det['precision']:.3f} "
+              f"f1={det['f1']:.3f}  TP={det['true_positive']} "
+              f"FP={det['false_positive']} FN={det['false_negative']}  "
+              f"{d['performance']['throughput_fps']:.0f} fps")
+
+    meta = {
+        "seed": settings.demo_seed, "scenario_count": len(results),
+        "detector": detector.describe().get("name"),
+        "detector_simulated": bool(detector.describe().get("simulated")),
+        "source": "mot-real-footage",
+    }
+    json_path, html_path = write_reports(results, meta, args.out)
+    print(f"\nReport written:\n  {json_path}\n  {html_path}")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--only", default="",
@@ -57,6 +120,11 @@ def main() -> int:
     parser.add_argument("--footage", type=Path, default=None,
                         help="use file sources from this directory instead of "
                              "the simulator")
+    parser.add_argument("--mot", type=Path, default=None,
+                        help="evaluate MOTChallenge sequences (real footage with "
+                             "real ground truth) under this directory")
+    parser.add_argument("--max-sequences", type=int, default=0,
+                        help="limit how many MOT sequences to run (0 = all)")
     parser.add_argument("--profile-seconds", type=float, default=40.0)
     parser.add_argument("--eval-seconds", type=float, default=45.0)
     parser.add_argument("--out", type=Path, default=Path("var/eval"))
@@ -68,6 +136,10 @@ def main() -> int:
 
     print(f"Detector: {detector.describe().get('name')}"
           f"{'  (SIMULATED)' if detector.describe().get('simulated') else ''}")
+
+    if args.mot is not None:
+        return run_mot(args, settings, detector)
+
     print(f"Evaluating {'footage in ' + str(args.footage) if args.footage else 'the simulated fleet'}\n")
 
     results = []

@@ -310,6 +310,121 @@ class EvaluationHarness:
             notes=notes,
         )
 
+    # -- detection-only mode (real footage without a border scenario) ----
+    def run_detection_only(
+        self,
+        profile_frames: int,
+        eval_frames: int,
+    ) -> ScenarioResult:
+        """Score detection, tracking, profiling and throughput on real footage.
+
+        Used for datasets like MOT that are pedestrian scenes with per-frame
+        ground truth but no border geometry - there is no fence to cross, so the
+        event-level scenario metrics do not apply and are left empty. What this
+        does measure, and what synthetic footage could not, is a real detector's
+        precision and recall against real annotations, plus whether the ground
+        plane self-calibrates on real people rather than simulated ones.
+        """
+        if not self.source.open():
+            raise RuntimeError(f"could not open source for {self.camera.camera_id}")
+
+        detection = DetectionCounts()
+        frame_times: list[float] = []
+        recovered_height = None
+        track_ids_seen: set[int] = set()
+        max_concurrent = 0
+        frame_index = 0
+
+        wall_start = time.perf_counter()
+        total = profile_frames + eval_frames
+        while frame_index < total:
+            frame = self.source.read()
+            if frame is None:
+                break                       # a finite sequence has ended
+            ts = frame.timestamp.timestamp()
+
+            t0 = time.perf_counter()
+            detections = self.detector.infer(
+                frame.image, allowed=None, frame_index=frame_index,
+                context={"ground_truth": frame.ground_truth,
+                         **self._detector_context()},
+            )
+            tracks = self.tracker.update(detections, frame.timestamp, ts)
+            frame_times.append((time.perf_counter() - t0) * 1000.0)
+
+            # Profiling runs during the warm-up window only, gated by frame index
+            # rather than by "has a certificate yet". Real footage may never fit a
+            # ground plane (no clean pedestrians, odd geometry), and gating on the
+            # certificate then left the run stuck in profiling, scoring nothing.
+            # Detection scoring must still happen once the window is past.
+            profiling = frame_index < profile_frames
+            if profiling:
+                self.profiler.observe_frame(frame.image, ts)
+                h, w = frame.image.shape[:2]
+                for t in tracks:
+                    if t.object_class is not ObjectClass.PERSON:
+                        continue
+                    if t.lost_frames > 0 or t.hits < 5:
+                        continue
+                    b = t.bbox
+                    if b.y2 >= h - 2 or b.y1 <= 1 or b.x1 <= 1 or b.x2 >= w - 2:
+                        continue
+                    self.profiler.observe_person(foot_v=b.y2, px_height=b.height,
+                                                 px_width=b.width)
+                if self.certificate is None and self.profiler.ready:
+                    self._issue_certificate(recovered_out=lambda v: None)
+                    m = self.certificate.measurement
+                    if m.ground_plane_estimated and m.px_per_metre_near > 0:
+                        recovered_height = (m.height - 1 - m.horizon_y) / m.px_per_metre_near
+            else:
+                # Score detections against this frame's real ground truth.
+                if frame.ground_truth:
+                    self._score_detections(detections, frame.ground_truth, detection)
+                track_ids_seen.update(t.track_id for t in tracks)
+                max_concurrent = max(max_concurrent, len(tracks))
+
+            frame_index += 1
+
+        self.source.close()
+        wall_seconds = time.perf_counter() - wall_start
+        run_seconds = frame_index / max(1.0, self.source.nominal_fps)
+        mean_ms = sum(frame_times) / len(frame_times) if frame_times else 0.0
+
+        notes = [
+            "Detection-only evaluation on real footage with real ground truth. "
+            "Event-level scenario metrics do not apply (no border geometry) and "
+            "are omitted.",
+            f"{len(track_ids_seen)} distinct tracks over the run, up to "
+            f"{max_concurrent} concurrent.",
+        ]
+        if self.detector.describe().get("simulated"):
+            notes.append(
+                "WARNING: the SYNTHETIC detector is loaded, which sees nothing in "
+                "real footage. Install a real ONNX model (models/README.md) - "
+                "these numbers are meaningless otherwise.")
+
+        return ScenarioResult(
+            camera_id=self.camera.camera_id,
+            detector_name=self.detector.describe().get("name", "unknown"),
+            detector_simulated=bool(self.detector.describe().get("simulated")),
+            source_simulated=False,
+            frames=frame_index,
+            run_seconds=run_seconds,
+            wall_seconds=wall_seconds,
+            detection=detection,
+            events=EventScoring(),
+            profiling_true_height_m=None,
+            profiling_recovered_height_m=recovered_height,
+            ground_plane_recovered=bool(
+                self.certificate
+                and self.certificate.measurement.ground_plane_estimated),
+            mean_ms_per_frame=mean_ms,
+            throughput_fps=1000.0 / mean_ms if mean_ms > 0 else 0.0,
+            granted_capabilities=sorted(c.value for c in self.certificate.granted())
+            if self.certificate else [],
+            notes=notes,
+        )
+
     # -- helpers ---------------------------------------------------------
     def _detector_context(self) -> dict[str, Any]:
         if not self.certificate:
