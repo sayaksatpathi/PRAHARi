@@ -67,6 +67,7 @@ from prahari.edge.rules.engine import EventCandidate, RuleContext, RuleEngine
 from prahari.common.models import Priority as _Priority
 from prahari.edge.segment.base import Segmenter
 from prahari.edge.segment.refine import refine_event
+from prahari.edge.crosscam.appearance import signature as appearance_signature
 from prahari.edge.sources.base import VideoSource
 from prahari.edge.tamper import TamperDetector
 from prahari.edge.track.bytetrack import ByteTracker
@@ -117,6 +118,8 @@ class CameraPipeline:
         on_plate_read=None,
         repeat_plates: RepeatPlateTracker | None = None,
         segmenter: Segmenter | None = None,
+        coordinator=None,
+        on_handoff=None,
     ) -> None:
         self.camera = camera
         self.source = source
@@ -138,6 +141,11 @@ class CameraPipeline:
         # Second-stage segmentation, invoked only on important events.
         self.segmenter = segmenter
         self._latest_raw_image = None
+        # Cross-camera coordinator (node-wide), and track-lifecycle bookkeeping.
+        self.coordinator = coordinator
+        self.on_handoff = on_handoff
+        self._reported_tracks: set[int] = set()
+        self._track_sig_at: dict[int, int] = {}
         self._segment_min_rank = _Priority(settings.segment_min_priority).rank
         self.plate_reader: PlateReader | None = None
         self.repeat_plates = repeat_plates
@@ -363,6 +371,8 @@ class CameraPipeline:
 
         anpr_events = self._run_anpr(frame)
 
+        self._report_crosscam(frame)
+
         self._learn_normalcy(frame.timestamp)
         if self._frame_index % 150 == 0:
             self._sweep_unchained()
@@ -436,6 +446,45 @@ class CameraPipeline:
         self.state = "profiling"
         log.info("camera %s re-attempting ground-plane calibration",
                  self.camera.camera_id)
+
+    def _report_crosscam(self, frame) -> None:
+        """Feed this camera's confirmed tracks to the cross-camera coordinator.
+
+        New confirmed tracks are announced (with an appearance signature) so the
+        coordinator can hand them off from a neighbouring camera; continuing
+        tracks refresh the entity; disappeared tracks are opened for handoff. All
+        of this is cheap - a colour histogram per new track - and the coordinator
+        itself is thread-safe, so it is safe to call from this executor thread.
+        """
+        if self.coordinator is None:
+            return
+        when = frame.timestamp
+        live_ids = set()
+        for t in self._tracks:
+            live_ids.add(t.track_id)
+            if t.object_class not in (ObjectClass.PERSON,) and not t.object_class.is_vehicle:
+                continue
+            if t.track_id not in self._reported_tracks:
+                self._reported_tracks.add(t.track_id)
+                sig = appearance_signature(frame.image, t.bbox)
+                self._track_sig_at[t.track_id] = self._frame_index
+                finding = self.coordinator.on_track_confirmed(
+                    self.camera.camera_id, t.track_id, t.object_class.value,
+                    sig, when)
+                if finding and self.on_handoff is not None:
+                    self.on_handoff(finding)
+            elif self._frame_index - self._track_sig_at.get(t.track_id, 0) >= 15:
+                self._track_sig_at[t.track_id] = self._frame_index
+                sig = appearance_signature(frame.image, t.bbox)
+                self.coordinator.on_track_update(
+                    self.camera.camera_id, t.track_id, sig, when)
+
+        # Tracks that were reported but are no longer live have left this camera.
+        for tid in list(self._reported_tracks):
+            if tid not in live_ids and self.tracker.state(tid) is None:
+                self._reported_tracks.discard(tid)
+                self._track_sig_at.pop(tid, None)
+                self.coordinator.on_track_lost(self.camera.camera_id, tid, when)
 
     def _learn_normalcy(self, when: datetime) -> None:
         """Count each track once, not once per frame.

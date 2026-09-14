@@ -87,6 +87,17 @@ Detection never depends on the link. Metadata is pushed, video is pulled. Under
 storage pressure clips are dropped, records never are. Clock drift during a long
 outage is corrected at the core without overwriting what the node observed.
 
+**7. Cameras are a corridor, not a list.**
+A camera topology graph with learnt transition times links a track leaving one
+camera to a track arriving at the next, so five independent cameras become one
+sector with global identities. *Seen at CAM-014 heading north-east, arrived at
+CAM-022 on time, never reached CAM-011* is an intelligence product; three
+unrelated events are not. Matching is deliberately conservative — an arrival that
+cannot be linked confidently becomes a new entity rather than inventing a journey
+— and an entity that was demonstrably travelling the corridor and then goes
+silent raises `CORRIDOR_DROPOUT`. Live on the node: 150 global entities, 2 linked
+across cameras. See [docs/crosscam.md](docs/crosscam.md).
+
 ---
 
 ## Quick start
@@ -341,21 +352,23 @@ The gap between this and something deployable, in priority order:
    ~0.1 MB/s, so the real numbers must be produced elsewhere. Everything
    downstream of the download is done. VIRAT is set up but gated behind a signed
    Data Protection Agreement, which is the deploying party's to accept.
-2. **Cross-camera track handoff.** A camera topology graph with learnt transition
-   times turns five independent cameras into one corridor. *Seen at CAM-3 heading
-   north-east, appeared at CAM-7, never reached CAM-9* is an intelligence product;
-   three separate events are not.
-4. **Friendly-force suppression.** SSB patrols walk the same routes and trip every
+2. **Cross-camera re-identification.** Track handoff, global entities and
+   corridor-dropout detection are built and running
+   ([docs/crosscam.md](docs/crosscam.md)); the appearance cue is an HSV colour
+   signature, which is genuinely weak between cameras with very different optics.
+   A proper re-ID model is the honest fix, and topology is currently seeded
+   rather than discovered from observed co-occurrence.
+3. **Friendly-force suppression.** SSB patrols walk the same routes and trip every
    rule. Patrol-schedule ingestion is the single biggest remaining false-alarm
    source.
-5. **SAM 2 GPU validation.** The event-triggered segmentation refinement is
+4. **SAM 2 GPU validation.** The event-triggered segmentation refinement is
    built and running (GrabCut backend, verified live; SAM 2 ONNX backend written
    behind the same interface). What remains is validating the SAM backend against
    real weights on a GPU — deferred for the same connection reason as MOT17. See
    [docs/segmentation.md](docs/segmentation.md).
-6. **Thermal-specific models.** Real border night capability is thermal, and an
+5. **Thermal-specific models.** Real border night capability is thermal, and an
    RGB model on a thermal feed is a compromise.
-7. **Replay/evaluation harness** producing precision, recall and false-alarm rate
+6. **Replay/evaluation harness** producing precision, recall and false-alarm rate
    against annotated footage, so accuracy questions get numbers rather than
    adjectives.
 
@@ -372,7 +385,7 @@ prahari/
 │   └── core/          sector aggregator
 ├── web/               zero-build dashboard
 ├── scripts/           smoke tests and verification
-├── tests/             39 unit tests
+├── tests/             101 unit tests
 └── models/            ONNX models (not committed)
 ```
 

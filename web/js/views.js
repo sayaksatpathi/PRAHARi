@@ -822,11 +822,118 @@ const Views = (() => {
     },
   };
 
+
+  const crosscam = {
+    async render(el, state) {
+      el.innerHTML = `
+        <div class="notice" style="margin-bottom:12px">
+          A single camera raises its own events. The corridor is what a sector
+          actually is: the coordinator links a track leaving one camera to the
+          track arriving at the next — on the learnt transition time, the object
+          class and a coarse appearance signature — and gives it one identity
+          across the sector. An object that entered the corridor and never
+          reached the far end did not leave frame; it left the corridor.
+        </div>
+        <div class="grid g4" style="margin-bottom:12px" id="cc-stats"></div>
+        <div class="grid g2">
+          <div class="panel">
+            <div class="panel-head"><span class="panel-title">Recent handoffs</span></div>
+            <div class="panel-body flush" id="cc-handoffs"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><span class="panel-title">Corridor topology</span>
+              <span class="tiny dim">transition times are learned from confirmed handoffs</span>
+            </div>
+            <div class="panel-body flush" id="cc-topology"></div>
+          </div>
+        </div>
+        <div class="panel" style="margin-top:12px">
+          <div class="panel-head"><span class="panel-title">Entities seen on more than one camera</span></div>
+          <div class="panel-body flush" id="cc-entities"></div>
+        </div>`;
+      await this.load();
+    },
+
+    async load() {
+      let d;
+      try { d = await API.crosscam(); }
+      catch (e) {
+        const s = document.getElementById('cc-stats');
+        if (s) s.innerHTML = `<div class="notice bad">${esc(e.message)}</div>`;
+        return;
+      }
+      this._data = d;
+
+      const stats = document.getElementById('cc-stats');
+      if (stats) stats.innerHTML = [
+        statTile('Global entities', d.entities_total,
+                 'distinct objects the sector has identified'),
+        statTile('Seen on 2+ cameras', d.multi_camera_entities,
+                 'linked by a confirmed handoff'),
+        statTile('Open handoffs', d.open_handoffs,
+                 'objects in transit between cameras'),
+        statTile('Corridor edges', (d.topology?.edges || []).length,
+                 'directed camera adjacencies'),
+      ].join('');
+
+      const hs = (d.recent_handoffs || []).slice().reverse();
+      const hEl = document.getElementById('cc-handoffs');
+      if (hEl) hEl.innerHTML = hs.length ? `
+        <table><thead><tr><th>From</th><th>To</th><th>Object</th>
+        <th>Transit</th><th>Score</th><th>Global</th></tr></thead><tbody>
+        ${hs.slice(0, 25).map(h => `
+          <tr>
+            <td class="mono">${esc(h.from_camera)}</td>
+            <td class="mono">${esc(h.to_camera)}</td>
+            <td>${esc(h.object_class)}</td>
+            <td class="mono">${esc(h.transition_s)}s</td>
+            <td class="mono">${esc(h.score)}</td>
+            <td class="mono">#${esc(h.global_id)}</td>
+          </tr>`).join('')}
+        </tbody></table>`
+        : '<div class="empty">No handoffs yet. Trigger a corridor journey from the Demonstration tab.</div>';
+
+      const tEl = document.getElementById('cc-topology');
+      const edges = d.topology?.edges || [];
+      if (tEl) tEl.innerHTML = edges.length ? `
+        <table><thead><tr><th>Edge</th><th>Mean transit</th><th>Spread</th>
+        <th>Observed</th><th>Arrival rate</th></tr></thead><tbody>
+        ${edges.map(e => `
+          <tr>
+            <td class="mono">${esc(e.src)} &rarr; ${esc(e.dst)}</td>
+            <td class="mono">${esc(e.mean_transition_s)}s</td>
+            <td class="mono">±${esc(e.std_transition_s)}s</td>
+            <td class="mono">${esc(e.observations)}</td>
+            <td class="mono">${e.observations ? (e.arrival_rate*100).toFixed(0)+'%' : '—'}</td>
+          </tr>`).join('')}
+        </tbody></table>` : '<div class="empty">No topology configured.</div>';
+
+      const multi = (d.entities || []).filter(e => (e.cameras || []).length > 1);
+      const eEl = document.getElementById('cc-entities');
+      if (eEl) eEl.innerHTML = multi.length ? `
+        <table><thead><tr><th>Global</th><th>Object</th><th>Cameras</th>
+        <th>Handoffs</th><th>First seen</th><th>Last seen</th></tr></thead><tbody>
+        ${multi.slice(0, 40).map(e => `
+          <tr>
+            <td class="mono">#${esc(e.global_id)}</td>
+            <td>${esc(e.object_class)}</td>
+            <td class="mono">${esc((e.cameras || []).join(' → '))}</td>
+            <td class="mono">${esc(e.handoffs)}</td>
+            <td class="mono tiny">${timeOf(e.first_seen)}</td>
+            <td class="mono tiny">${timeOf(e.last_seen)}</td>
+          </tr>`).join('')}
+        </tbody></table>`
+        : '<div class="empty">No object has yet been linked across two cameras.</div>';
+    },
+
+    paint() { /* refreshed on demand; the sector view is not per-frame */ },
+  };
+
   /* --- helpers ---------------------------------------------------------- */
   function bindAlertRows(root) {
     root.querySelectorAll('[data-event]').forEach(node =>
       node.addEventListener('click', () => openEvent(node.getAttribute('data-event'))));
   }
 
-  return { dashboard, cameras, alerts, events, capability, zones, health, integrity, demo, openEvent };
+  return { dashboard, cameras, alerts, events, crosscam, capability, zones, health, integrity, demo, openEvent };
 })();

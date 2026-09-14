@@ -148,6 +148,8 @@ const API = (() => {
               { method: 'POST', body: { feedback: feedback || null, note: note || null } }),
     feedback:    () => request('/api/alerts/feedback'),
 
+    crosscam:    () => request('/api/crosscam/sector'),
+
     demo:        (action, extra = {}) =>
       request('/api/demo/action', { method: 'POST', body: Object.assign({ action }, extra) }),
   };

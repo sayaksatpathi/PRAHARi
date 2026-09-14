@@ -49,6 +49,12 @@ from prahari.edge.factory import (
 from prahari.edge.normalcy import NormalcyModel
 from prahari.edge.pipeline import CameraPipeline
 from prahari.edge.segment.factory import build_segmenter
+from prahari.edge.crosscam.coordinator import CrossCameraCoordinator
+from prahari.edge.crosscam.topology import demo_topology
+from prahari.edge.priority import ScoringContext, score_event
+from prahari.edge.evidence import compute_entry_hash  # noqa: F401
+from collections import deque
+from uuid import uuid4
 from prahari.edge.sync import SyncManager
 
 logging.basicConfig(
@@ -86,6 +92,11 @@ class NodeRuntime:
         self.pipelines: dict[str, CameraPipeline] = {}
         self.detector = None
         self.segmenter = None
+        # Cross-camera reasoning is node-wide: one coordinator consumes tracks
+        # from every pipeline.
+        self.coordinator = CrossCameraCoordinator(demo_topology(), self.settings.node_id)
+        self.recent_handoffs = deque(maxlen=120)
+        self._crosscam_task = None
         self.plate_reader = None
         self._plate_readers: dict[str, Any] = {}
         # A short rolling log, so a read survives the vehicle driving out of
@@ -130,6 +141,8 @@ class NodeRuntime:
             await self.add_pipeline(camera)
 
         await self.sync.start()
+        self._crosscam_task = asyncio.create_task(self._crosscam_loop(),
+                                                  name="prahari-crosscam")
         log.info("edge node %s ready with %d camera(s)",
                  self.settings.node_id, len(self.pipelines))
 
@@ -172,6 +185,8 @@ class NodeRuntime:
             on_plate_read=self._record_plate_read,
             segmenter=self.segmenter,
             repeat_plates=self.repeat_plates,
+            coordinator=self.coordinator,
+            on_handoff=self._on_handoff,
         )
         self.pipelines[camera.camera_id] = pipeline
         await pipeline.start()
@@ -182,10 +197,72 @@ class NodeRuntime:
             await pipeline.stop()
 
     async def stop(self) -> None:
+        if self._crosscam_task:
+            self._crosscam_task.cancel()
+            try:
+                await self._crosscam_task
+            except asyncio.CancelledError:
+                pass
         await self.sync.stop()
         for pipeline in list(self.pipelines.values()):
             await pipeline.stop()
         self.db.close()
+
+    # -- cross-camera ----------------------------------------------------
+    def _on_handoff(self, finding: dict) -> None:
+        """A pipeline reported a cross-camera handoff. Log and publish it."""
+        self.recent_handoffs.append(finding)
+        self.bus.publish_soon(
+            subj(self.settings.node_id, "crosscam", None),
+            {"handoff": finding})
+
+    async def _crosscam_loop(self) -> None:
+        """Periodic corridor reasoning: raise dropout events."""
+        while True:
+            try:
+                await asyncio.sleep(5.0)
+                findings = self.coordinator.tick(datetime.now(timezone.utc))
+                for f in findings:
+                    if f.get("kind") == "corridor_dropout":
+                        await self._emit_crosscam_event(f)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("cross-camera loop error")
+
+    async def _emit_crosscam_event(self, finding: dict) -> None:
+        """Turn a corridor-dropout finding into a sealed, alertable event.
+
+        It has no single trigger frame - the object already left the corridor -
+        so it carries metadata and its cross-camera trail rather than a clip. It
+        is sealed into the same hash chain and synchronised like any other event.
+        """
+        now = datetime.now(timezone.utc)
+        score, factors, priority = score_event(
+            EventType.CORRIDOR_DROPOUT, None,
+            ScoringContext(extra={"corridor dropout": 0.12}))
+        event = Event(
+            event_id="EVT-" + uuid4().hex[:12].upper(),
+            camera_id=finding.get("camera_id", "SECTOR"),
+            node_id=self.settings.node_id,
+            event_type=EventType.CORRIDOR_DROPOUT,
+            priority=priority, priority_score=score, priority_factors=factors,
+            object_class=ObjectClass(finding.get("object_class", "unknown"))
+            if finding.get("object_class") in ObjectClass._value2member_map_
+            else ObjectClass.UNKNOWN,
+            timestamp=now, monotonic_ns=time.monotonic_ns(),
+            summary=finding.get("summary", "corridor dropout"),
+            detail={"crosscam": finding},
+        )
+        if self.governor is not None:
+            decision = self.governor.decide(event)
+            event.alerted = decision.alerted
+            event.alert_decision = decision.reason
+        self.db.insert_event(self.ledger.append(event))
+        log.info("[SECTOR] CORRIDOR_DROPOUT %s", finding.get("summary", ""))
+        await self.bus.publish(
+            subj(self.settings.node_id, "events", event.camera_id),
+            {"event": event.model_dump(mode="json")})
 
     # -- status ----------------------------------------------------------
     def system_status(self) -> SystemStatus:
@@ -676,6 +753,38 @@ async def anpr_plates(principal: Principal = Depends(current_principal)):
 
 
 # =====================================================================
+# Cross-camera intelligence
+# =====================================================================
+
+@app.get("/api/crosscam/sector", tags=["crosscam"])
+async def crosscam_sector(principal: Principal = Depends(current_principal)):
+    """Global entities tracked across cameras, plus the topology.
+
+    This is the sector view a single camera cannot give: which objects have been
+    handed off between cameras, how many cross more than one, and the corridor
+    graph the reasoning runs on.
+    """
+    view = runtime.coordinator.sector_view()
+    view["recent_handoffs"] = list(runtime.recent_handoffs)[-30:]
+    return view
+
+
+@app.get("/api/crosscam/topology", tags=["crosscam"])
+async def crosscam_topology(principal: Principal = Depends(current_principal)):
+    """The camera adjacency graph with learned transition times."""
+    return runtime.coordinator.topology.as_dict()
+
+
+@app.get("/api/crosscam/entities/{global_id}", tags=["crosscam"])
+async def crosscam_entity(global_id: int,
+                          principal: Principal = Depends(current_principal)):
+    ent = runtime.coordinator.entity(global_id)
+    if ent is None:
+        raise HTTPException(status_code=404, detail="no such global entity")
+    return ent.as_dict()
+
+
+# =====================================================================
 # Demo controls
 # =====================================================================
 
@@ -725,6 +834,27 @@ async def demo_action(req: DemoAction, principal: Principal = Depends(require("o
         raise HTTPException(
             status_code=400,
             detail="this action only applies to a simulated camera")
+
+    if action == "journey":
+        # Stage a corridor journey: a subject walks the lawful corridor, appearing
+        # at each camera in turn at the topology's transition times, so the
+        # coordinator can hand it off across cameras live. The independent demo
+        # scenes never share an object otherwise.
+        import asyncio as _asyncio
+        corridor = [("CAM-014", 0.0), ("CAM-022", 35.0), ("CAM-011", 85.0)]
+        async def _walk():
+            for cam, delay in corridor:
+                if delay:
+                    await _asyncio.sleep(delay)
+                p = runtime.pipelines.get(cam)
+                s = getattr(p, "source", None) if p else None
+                if s is not None and getattr(s, "is_simulated", False):
+                    s.inject_intruder()
+        _asyncio.create_task(_walk())
+        return {"status": "journey",
+                "note": "a subject will walk the corridor CAM-014 -> CAM-022 -> "
+                        "CAM-011 at the learned transition times; watch "
+                        "Cross-Camera for the handoffs"}
 
     if action == "intrusion":
         actor = sim.inject_intruder()
