@@ -75,6 +75,12 @@ class Settings(BaseSettings):
     sam_encoder_path: Path = Path("./models/sam2_encoder.onnx")
     sam_decoder_path: Path = Path("./models/sam2_decoder.onnx")
 
+    # --- Cross-camera appearance -------------------------------------------
+    # A learned re-ID embedding, used when present. Absent, the coordinator uses
+    # the HSV histogram cue, which is tested and needs no download - the same
+    # arrangement as SAM 2 and GrabCut.
+    reid_model_path: Path = Path("./models/reid.onnx")
+
     # --- Tracking ----------------------------------------------------------
     track_timeout_seconds: float = 5.0
     track_match_iou: float = 0.30
