@@ -99,6 +99,41 @@ throughput. The border-scenario metrics (intruder, latency, false-alarm
 suppression) do not apply to a street-pedestrian dataset with no fence, and are
 omitted rather than faked.
 
+### Tracking metrics, and why detection numbers are not enough
+
+Precision and recall say whether the detector *saw* the people. They say nothing
+about whether the tracker kept them as the **same** people, and for Prahari that
+second question is the load-bearing one:
+
+| Feature | What breaks if identity breaks |
+|---|---|
+| Loitering | Dwell is time on one track. Fragment it and nobody ever loiters. |
+| Cross-camera handoff | An identity leaves one camera and arrives at the next. There is nothing to hand off. |
+| Patrol conformance | A heading accumulated over a trajectory. A two-frame track has no direction. |
+| Repeat-entity detection | "The same thing keeps appearing" is a statement about identity. |
+
+So `prahari.eval.tracking` scores **CLEAR-MOT** and **IDF1** on the same single
+pass as detection, wherever the ground truth carries identities:
+
+- **MOTA** = `1 - (FN + FP + IDSW) / GT`. Dominated by detection errors, and
+  allowed to go **negative** rather than clamped — a detector hallucinating more
+  boxes than there are people has earned that verdict.
+- **MOTP** — mean IoU over matched pairs. Box tightness, independent of how many
+  were found.
+- **IDF1** — an optimal one-to-one assignment between ground-truth and predicted
+  tracks over the whole sequence. This is the one that catches fragmentation: a
+  tracker that shatters one person into ten identities holds a respectable MOTA
+  and collapses on IDF1, and that gap is precisely the failure above.
+- **MT / PT / ML** — ground-truth tracks covered ≥80%, in between, and ≤20%.
+- **ID switches** — with matches carried forward between frames, per the
+  standard. Without that carry-forward a scorer re-solves the assignment every
+  frame and charges a switch on *every frame after* one real swap, turning one
+  error into fifty.
+
+`tests/test_tracking_metrics.py` checks all of this against cases whose answers
+can be worked out by hand, because a metric implementation that is subtly wrong
+produces plausible figures — and plausible figures get quoted.
+
 The path is validated end to end by `tests/test_mot.py` against a self-made MOT
 fixture with known ground truth: a perfect detector scores recall 1.0, a blind
 one scores 0.0, and the real YOLOX model has been run through the adapter to

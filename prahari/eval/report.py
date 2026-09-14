@@ -60,6 +60,28 @@ def _scenario_detail(r: dict[str, Any]) -> str:
                  f"<td>{c['fp']}</td><td>{c['fn']}</td>"
                  f"<td>{c['precision']:.2f}</td><td>{c['recall']:.2f}</td></tr>")
     notes = "".join(f"<li>{n}</li>" for n in r.get("notes", []))
+
+    # Tracking is present only where the ground truth carried identities. A
+    # missing block means "not scored", and rendering zeros there would read as
+    # "scored zero" - a different and much worse claim.
+    trk = r.get("tracking")
+    tracking_html = ""
+    if trk:
+        tracking_html = f"""
+      <table class="mini"><thead><tr>
+        <th>MOTA</th><th>MOTP</th><th>IDF1</th><th>ID sw</th>
+        <th>MT</th><th>PT</th><th>ML</th><th>GT tracks</th>
+      </tr></thead><tbody><tr>
+        <td>{trk['mota']:.3f}</td><td>{trk['motp_iou']:.3f}</td>
+        <td>{trk['idf1']:.3f}</td><td>{trk['id_switches']}</td>
+        <td>{trk['mostly_tracked']}</td><td>{trk['partially_tracked']}</td>
+        <td>{trk['mostly_lost']}</td><td>{trk['gt_tracks']}</td>
+      </tr></tbody></table>
+      <p class="muted small">CLEAR-MOT and IDF1 over {trk['frames_scored']} frames
+      with identity ground truth, IoU {trk['iou_threshold']}, assignment
+      {trk['assignment']}. MOTA is negative when false positives plus misses
+      exceed the ground-truth count; that is the metric working.</p>"""
+
     return f"""
     <div class="card">
       <h3>{r['camera_id']} <span class="muted mono">
@@ -75,6 +97,7 @@ def _scenario_detail(r: dict[str, Any]) -> str:
       {'<table class="mini"><thead><tr><th>class</th><th>TP</th><th>FP</th>'
        '<th>FN</th><th>prec</th><th>recall</th></tr></thead><tbody>'
        + rows + '</tbody></table>' if rows else ''}
+      {tracking_html}
       {'<ul class="notes">' + notes + '</ul>' if notes else ''}
     </div>"""
 
