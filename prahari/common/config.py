@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     # --- Inference ---------------------------------------------------------
     detector: str = "auto"          # auto | onnx | synthetic
     model_path: Path = Path("./models/yolo.onnx")
+    # Inference resolution. 0 reads it from the model's own input shape, which
+    # is right for a fixed-size export. An export with dynamic spatial dims has
+    # no size to read, and the same weights at a different input resolution is
+    # a different accuracy/cost point worth measuring - so it is settable.
+    detector_input_size: int = 0
     device: str = "auto"            # auto | cpu | cuda
     # Windows only. ONNX Runtime's CUDA provider loads the CUDA runtime by name
     # at session creation, and since Python 3.8 PATH is not searched for
