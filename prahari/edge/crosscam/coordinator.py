@@ -314,3 +314,19 @@ class CrossCameraCoordinator:
 
     def entity(self, global_id: int) -> Entity | None:
         return self._entities.get(global_id)
+
+    @_synchronized
+    def trail_for(self, camera_id: str, track_id: int) -> list[str]:
+        """The camera sequence this live track arrived by, oldest first.
+
+        Read-only, and empty for a track with no cross-camera history - which
+        is most of them. Callers use it as corroboration when it exists, never
+        as a requirement.
+        """
+        gid = self._local_to_global.get((camera_id, track_id))
+        if gid is None:
+            return []
+        entity = self._entities.get(gid)
+        if entity is None:
+            return []
+        return [s[0] for s in entity.sightings]

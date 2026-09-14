@@ -20,14 +20,15 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from prahari.common.models import (
-    CapabilityCertificate,
     Camera,
+    CapabilityCertificate,
     Event,
+    PatrolProfile,
     SyncState,
     Zone,
 )
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -96,6 +97,17 @@ CREATE INDEX IF NOT EXISTS idx_events_prio   ON events(priority_rank DESC, ts_ep
 -- Learnt pattern of life. One row per camera x zone x hour-of-week bucket.
 -- This is what lets an open-border deployment treat the 10:00 market crowd as
 -- normal and the 02:00 single walker as worth a look.
+-- Declared friendly-force movements. Configuration, not learnt state: a
+-- patrol is here because somebody with authority at the post wrote it down,
+-- never because the node decided some nightly movement looked routine.
+CREATE TABLE IF NOT EXISTS patrols (
+    patrol_id   TEXT PRIMARY KEY,
+    active      INTEGER NOT NULL DEFAULT 1,
+    payload     TEXT NOT NULL,          -- full PatrolProfile JSON
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS normalcy (
     camera_id   TEXT NOT NULL,
     zone_id     TEXT NOT NULL DEFAULT '',
@@ -231,6 +243,35 @@ class Database:
 
     def delete_zone(self, zone_id: str) -> bool:
         return self.execute("DELETE FROM zones WHERE zone_id=?", (zone_id,)).rowcount > 0
+
+    # -- patrols ---------------------------------------------------------
+    def upsert_patrol(self, profile: PatrolProfile) -> None:
+        now = _iso(datetime.now(timezone.utc))
+        self.execute(
+            """INSERT INTO patrols(patrol_id, active, payload, created_at, updated_at)
+               VALUES(?,?,?,?,?)
+               ON CONFLICT(patrol_id) DO UPDATE SET active=excluded.active,
+                                                    payload=excluded.payload,
+                                                    updated_at=excluded.updated_at""",
+            (profile.patrol_id, int(profile.active), profile.model_dump_json(),
+             now, now),
+        )
+
+    def get_patrol(self, patrol_id: str) -> PatrolProfile | None:
+        row = self.query_one("SELECT payload FROM patrols WHERE patrol_id=?",
+                             (patrol_id,))
+        return PatrolProfile.model_validate_json(row["payload"]) if row else None
+
+    def list_patrols(self, active_only: bool = False) -> list[PatrolProfile]:
+        sql = "SELECT payload FROM patrols"
+        if active_only:
+            sql += " WHERE active = 1"
+        sql += " ORDER BY patrol_id"
+        return [PatrolProfile.model_validate_json(r["payload"]) for r in self.query(sql)]
+
+    def delete_patrol(self, patrol_id: str) -> bool:
+        return self.execute("DELETE FROM patrols WHERE patrol_id=?",
+                            (patrol_id,)).rowcount > 0
 
     # -- certificates ---------------------------------------------------
     def save_certificate(self, cert: CapabilityCertificate) -> None:

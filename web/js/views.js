@@ -85,6 +85,76 @@ const Views = (() => {
       </div>`;
   }
 
+  const PATROL_BADGE = {
+    suppressed: ['b-ok', 'PATROL MATCH'],
+    downgraded: ['b-warn', 'PATROL — UNCERTAIN'],
+    deviation:  ['b-high', 'PATROL DEVIATION'],
+  };
+
+  function patrolBadge(patrol, tiny) {
+    if (!patrol || patrol.decision === 'not_matched') return '';
+    const [cls, label] = PATROL_BADGE[patrol.decision] || ['b-neutral', 'PATROL'];
+    return `<span class="badge ${cls} ${tiny ? 'tiny' : ''}"
+                  title="${esc(patrol.reason || '')}">${label}</span>`;
+  }
+
+  /* Expected versus observed, side by side. "Suppressed, trust me" is not a
+   * reviewable statement, so the card always shows what the patrol was
+   * supposed to be doing next to what was actually seen. */
+  function patrolPanel(patrol) {
+    if (!patrol) return '';
+    const cues = (patrol.cues || []).map(c => `
+      <tr class="${c.evaluable ? '' : 'faint'}">
+        <td>${esc(titleise(c.name))}</td>
+        <td class="mono">${c.evaluable ? Number(c.score).toFixed(2) : '—'}</td>
+        <td class="tiny" style="font-family:var(--sans)">${esc(c.detail)}</td>
+      </tr>`).join('');
+
+    const devs = (patrol.deviations || []).length ? `
+      <div class="notice bad" style="margin:10px 0 0">
+        <strong>Deviation from the declared patrol:</strong>
+        ${esc(patrol.deviations.join('; '))}.
+      </div>` : '';
+
+    return `
+      <div class="panel" style="margin-bottom:12px">
+        <div class="panel-head">
+          <span class="panel-title">Friendly force</span>
+          ${patrolBadge(patrol, true)}
+        </div>
+        <div class="panel-body">
+          ${patrol.decision === 'not_matched' ? `
+            <p class="small dim" style="margin-top:0">
+              No declared patrol accounts for this event, so it took the normal
+              alert path. ${esc(patrol.reason || '')}
+            </p>` : `
+            <dl class="kv">
+              <dt>Decision</dt><dd>${esc(titleise(patrol.decision))}</dd>
+              <dt>Patrol</dt><dd>${esc(patrol.patrol_name || patrol.patrol_id || '—')}</dd>
+              <dt>Match score</dt><dd class="mono">${Number(patrol.match_score).toFixed(2)}
+                <span class="tiny faint">(identity ${Number(patrol.identity_confidence).toFixed(2)},
+                conformance ${Number(patrol.conformance).toFixed(2)})</span></dd>
+              <dt>Expected route</dt><dd class="mono">${esc((patrol.expected_route || []).join(' → ')) || '—'}</dd>
+              <dt>Expected window</dt><dd class="mono">${esc(patrol.expected_window || '—')}</dd>
+              <dt>Observed time</dt><dd class="mono">${patrol.observed_time ? dateTimeOf(patrol.observed_time) : '—'}</dd>
+              <dt>Expected direction</dt><dd class="mono">${patrol.expected_heading_deg != null ? Number(patrol.expected_heading_deg).toFixed(0) + '°' : '—'}</dd>
+              <dt>Observed direction</dt><dd class="mono">${patrol.observed_heading_deg != null ? Number(patrol.observed_heading_deg).toFixed(0) + '°' : 'not measurable'}</dd>
+              <dt>Score effect</dt><dd class="mono">${Number(patrol.score_adjustment) >= 0 ? '+' : ''}${Number(patrol.score_adjustment).toFixed(2)}</dd>
+            </dl>
+            ${devs}
+            <p class="small" style="font-family:var(--sans)">${esc(patrol.reason || '')}</p>
+            <div class="hr"></div>
+            <table class="tiny"><thead><tr><th>Cue</th><th>Agreement</th><th>Basis</th></tr></thead>
+              <tbody>${cues}</tbody></table>`}
+          <p class="tiny faint" style="margin-bottom:0">
+            A suppressed event is recorded, scored, sealed into the hash chain
+            with this assessment attached, and synchronised. It is never
+            deleted or hidden — it simply did not interrupt anybody.
+          </p>
+        </div>
+      </div>`;
+  }
+
   function alertRow(ev, isNew) {
     const acked = ev.acknowledged;
     return `
@@ -94,6 +164,7 @@ const Views = (() => {
           ${priorityBadge(ev.priority)}
           <span class="badge b-neutral mono tiny">${esc(ev.camera_id)}</span>
           <span class="tiny dim">${esc(titleise(ev.event_type))}</span>
+          ${patrolBadge(ev.patrol, true)}
           <span class="right tiny mono dim">${timeOf(ev.timestamp)}</span>
         </div>
         <div class="alert-summary">${esc(ev.summary)}</div>
@@ -166,6 +237,8 @@ const Views = (() => {
               </p>
             </div>
           </div>
+
+          ${ev.patrol ? patrolPanel(ev.patrol) : ''}
 
           <div class="panel" style="margin-bottom:12px">
             <div class="panel-head"><span class="panel-title">Detail</span></div>
@@ -753,6 +826,17 @@ const Views = (() => {
                 <button data-demo="vehicle">Vehicle with plate</button>
               </div>
               <div class="hr"></div>
+              <div class="stat-label">Friendly force</div>
+              <div class="row wrap" style="margin-top:6px">
+                <button data-demo="patrol">Patrol on its route</button>
+                <button data-demo="patrol_reverse">Patrol walking the wrong way</button>
+              </div>
+              <p class="tiny faint" style="margin:6px 0 0">
+                Both inject the same two-man foot patrol; only the direction
+                differs. Whether the result is suppressed or escalated is
+                decided by the matcher from the real track, not by the button.
+              </p>
+              <div class="hr"></div>
               <div class="stat-label">Sensor attack</div>
               <div class="row wrap" style="margin-top:6px">
                 <button data-tamper="covered">Cover the lens</button>
@@ -929,11 +1013,149 @@ const Views = (() => {
     paint() { /* refreshed on demand; the sector view is not per-frame */ },
   };
 
+  const patrol = {
+    async render(el, state) {
+      el.innerHTML = `
+        <div class="notice" style="margin-bottom:12px">
+          Own patrols walk the same routes every night and trip every rule on
+          them — routinely the single largest source of false alarms on a fenced
+          sector, arriving at the same hour, which is exactly the pattern that
+          teaches an operator to stop looking. This layer holds movement against
+          a <strong>declared</strong> patrol: right camera, right zone, right
+          window, right direction, plausible pace. All of it, or no suppression.
+          Matching a patrol's identity while breaking its expectations
+          <strong>raises</strong> the priority instead.
+        </div>
+
+        <div class="grid g4" style="margin-bottom:12px" id="pt-stats"></div>
+
+        <div class="panel" style="margin-bottom:12px">
+          <div class="panel-head">
+            <span class="panel-title">Decision policy, evaluated live</span>
+            <span class="tiny dim">the production matcher, run over five fixed observations</span>
+          </div>
+          <div class="panel-body flush" id="pt-scenarios"></div>
+        </div>
+
+        <div class="panel" style="margin-bottom:12px">
+          <div class="panel-head"><span class="panel-title">Declared patrol roster</span>
+            <span class="tiny dim">configuration, not learnt state</span>
+          </div>
+          <div class="panel-body flush" id="pt-roster"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><span class="panel-title">Events a patrol accounted for</span></div>
+          <div class="panel-body flush" id="pt-events"></div>
+        </div>`;
+      await this.load();
+    },
+
+    async load() {
+      let roster, scen, events;
+      try {
+        [roster, scen, events] = await Promise.all([
+          API.patrols(), API.patrolScenarios(), API.events({ limit: 300 }),
+        ]);
+      } catch (e) {
+        const s = document.getElementById('pt-stats');
+        if (s) s.innerHTML = `<div class="notice bad">${esc(e.message)}</div>`;
+        return;
+      }
+
+      const m = roster.metrics || {};
+      const stats = document.getElementById('pt-stats');
+      if (stats) stats.innerHTML = [
+        statTile('Events assessed', m.raw_events ?? 0,
+                 'every event is assessed and recorded'),
+        statTile('Patrol matched', m.patrol_matched_events ?? 0,
+                 `${m.suppressed_events ?? 0} suppressed, ${m.downgraded_events ?? 0} downgraded`),
+        statTile('Patrol deviations', m.abnormal_patrol_events ?? 0,
+                 'escalated, not suppressed',
+                 (m.abnormal_patrol_events ? 'var(--high)' : null)),
+        statTile('Removed from the alert path',
+                 (m.alert_reduction_percent ?? 0).toFixed(1) + '%',
+                 'share of assessed events this run'),
+      ].join('');
+
+      const sEl = document.getElementById('pt-scenarios');
+      if (sEl) sEl.innerHTML = `
+        <table><thead><tr><th></th><th>Scenario</th><th>Observed</th>
+        <th>Expected</th><th>Decided</th><th>Match</th></tr></thead><tbody>
+        ${(scen.scenarios || []).map(r => `
+          <tr>
+            <td><span class="badge ${r.passed ? 'b-ok' : 'b-high'} tiny">${r.key}</span></td>
+            <td>${esc(r.title)}<div class="tiny faint">${esc(r.narrative)}</div></td>
+            <td class="mono tiny">${esc(r.camera_id)}<br>${esc(r.observed_time)} · ${Number(r.observed_heading_deg).toFixed(0)}°</td>
+            <td class="tiny">${esc(titleise(r.expected_decision))}</td>
+            <td>${esc(titleise(r.actual_decision))}
+                <div class="tiny faint">${esc(r.expected_effect)}</div></td>
+            <td class="mono">${Number(r.match_score).toFixed(2)}</td>
+          </tr>`).join('')}
+        </tbody></table>
+        <div class="panel-body">
+          <p class="tiny faint" style="margin:0">${esc(scen.note || '')}</p>
+        </div>`;
+
+      const rEl = document.getElementById('pt-roster');
+      const profiles = roster.profiles || [];
+      if (rEl) rEl.innerHTML = profiles.length ? `
+        <table><thead><tr><th>Patrol</th><th>Route</th><th>Window</th>
+        <th>Direction</th><th>Budget</th><th>Status</th></tr></thead><tbody>
+        ${profiles.map(p => `
+          <tr>
+            <td><span class="mono">${esc(p.patrol_id)}</span>
+                <div class="tiny faint">${esc(p.name)}</div></td>
+            <td class="mono tiny">${esc((p.cameras || []).join(' → '))}</td>
+            <td class="mono tiny">${esc((p.windows || []).map(w => windowLabel(w)).join('; ') || '—')}</td>
+            <td class="mono tiny">${p.expected_heading_deg != null
+                ? Number(p.expected_heading_deg).toFixed(0) + '° ±' + Number(p.heading_tolerance_deg).toFixed(0)
+                : '—'}</td>
+            <td class="mono tiny">${esc(p.max_suppressions_per_window)}/window</td>
+            <td><span class="badge ${p.active ? 'b-ok' : 'b-neutral'} tiny">${p.active ? 'ACTIVE' : 'INACTIVE'}</span></td>
+          </tr>`).join('')}
+        </tbody></table>`
+        : '<div class="empty">No patrol profiles declared. Without one, every event takes the normal alert path.</div>';
+
+      const matched = (events || []).filter(e => e.patrol && e.patrol.decision !== 'not_matched');
+      const eEl = document.getElementById('pt-events');
+      if (eEl) eEl.innerHTML = matched.length ? `
+        <table><thead><tr><th>Time</th><th>Camera</th><th>Event</th>
+        <th>Decision</th><th>Match</th><th>Alerted</th></tr></thead><tbody>
+        ${matched.slice(0, 40).map(e => `
+          <tr data-event="${esc(e.event_id)}" style="cursor:pointer">
+            <td class="mono tiny">${timeOf(e.timestamp)}</td>
+            <td class="mono">${esc(e.camera_id)}</td>
+            <td>${esc(titleise(e.event_type))}
+                <div class="tiny faint">${esc(e.patrol.patrol_name || '')}</div></td>
+            <td>${patrolBadge(e.patrol, true)}</td>
+            <td class="mono">${Number(e.patrol.match_score).toFixed(2)}</td>
+            <td class="tiny">${e.alerted ? 'yes' : 'recorded only'}</td>
+          </tr>`).join('')}
+        </tbody></table>`
+        : `<div class="empty">No event has been matched to a patrol yet.
+             Run <strong>Demonstration → Patrol on its route</strong> on a camera
+             covered by an active profile.</div>`;
+      if (eEl) bindAlertRows(eEl);
+    },
+
+    paint() { /* refreshed on demand; not a per-frame view */ },
+  };
+
+  function windowLabel(w) {
+    const hhmm = (m) => String(Math.floor(m / 60)).padStart(2, '0') + ':' +
+                        String(m % 60).padStart(2, '0');
+    const days = (w.days && w.days.length)
+      ? w.days.map(d => ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][d]).join(' ')
+      : 'daily';
+    return `${hhmm(w.start_minute)}-${hhmm(w.end_minute)} ${days} ±${w.tolerance_minutes}m`;
+  }
+
   /* --- helpers ---------------------------------------------------------- */
   function bindAlertRows(root) {
     root.querySelectorAll('[data-event]').forEach(node =>
       node.addEventListener('click', () => openEvent(node.getAttribute('data-event'))));
   }
 
-  return { dashboard, cameras, alerts, events, crosscam, capability, zones, health, integrity, demo, openEvent };
+  return { dashboard, cameras, alerts, events, crosscam, patrol, capability, zones, health, integrity, demo, openEvent };
 })();

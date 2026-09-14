@@ -98,6 +98,17 @@ cannot be linked confidently becomes a new entity rather than inventing a journe
 silent raises `CORRIDOR_DROPOUT`. Live on the node: 150 global entities, 2 linked
 across cameras. See [docs/crosscam.md](docs/crosscam.md).
 
+**8. Own patrols are recognised, not whitelisted.**
+A BOP's own patrols walk the same routes on a schedule through the same zones the
+rules watch, which makes the system's most repeatable alert its own side walking
+past. Prahari holds movement against a *declared* patrol — right camera, right
+zone, right window, right direction, plausible pace — and suppresses only when
+all of it agrees. Matching a patrol's identity while breaking its expectations
+**raises** the priority instead: a patrol walking its route backwards is either
+lost, in trouble, or not the patrol. Schedule is a hard gate, suppression is
+budgeted per window, and nothing is ever deleted or hidden. See
+[docs/patrol-suppression.md](docs/patrol-suppression.md).
+
 ---
 
 ## Quick start
@@ -358,9 +369,12 @@ The gap between this and something deployable, in priority order:
    signature, which is genuinely weak between cameras with very different optics.
    A proper re-ID model is the honest fix, and topology is currently seeded
    rather than discovered from observed co-occurrence.
-3. **Friendly-force suppression.** SSB patrols walk the same routes and trip every
-   rule. Patrol-schedule ingestion is the single biggest remaining false-alarm
-   source.
+3. **Patrol-roster ingestion.** Friendly-force suppression is built and running
+   ([docs/patrol-suppression.md](docs/patrol-suppression.md)), but profiles are
+   entered by hand: there is no feed from a duty-roster system, and an ad-hoc
+   patrol called out at short notice correctly gets the normal alert path.
+   Separating a person moving *with* a patrol from the patrol itself needs
+   re-identification, and is the same gap as item 2.
 4. **SAM 2 GPU validation.** The event-triggered segmentation refinement is
    built and running (GrabCut backend, verified live; SAM 2 ONNX backend written
    behind the same interface). What remains is validating the SAM backend against
@@ -381,11 +395,12 @@ prahari/
 ├── prahari/
 │   ├── common/        models, config, SQLite, bus, geometry
 │   ├── edge/          the node: profiling, detection, tracking, rules,
-│   │                  scoring, alerting, evidence, sync, API
+│   │                  scoring, patrol suppression, cross-camera,
+│   │                  alerting, evidence, sync, API
 │   └── core/          sector aggregator
 ├── web/               zero-build dashboard
 ├── scripts/           smoke tests and verification
-├── tests/             101 unit tests
+├── tests/             142 unit tests
 └── models/            ONNX models (not committed)
 ```
 

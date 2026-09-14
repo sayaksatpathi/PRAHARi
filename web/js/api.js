@@ -150,6 +150,13 @@ const API = (() => {
 
     crosscam:    () => request('/api/crosscam/sector'),
 
+    patrols:         () => request('/api/patrols'),
+    patrolMetrics:   () => request('/api/patrols/metrics'),
+    patrolScenarios: () => request('/api/patrols/scenarios'),
+    setPatrolActive: (id, active) =>
+      request(`/api/patrols/${encodeURIComponent(id)}/active?active=${active ? 'true' : 'false'}`,
+              { method: 'POST' }),
+
     demo:        (action, extra = {}) =>
       request('/api/demo/action', { method: 'POST', body: Object.assign({ action }, extra) }),
   };

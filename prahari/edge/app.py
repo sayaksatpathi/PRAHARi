@@ -33,6 +33,7 @@ from prahari.common.models import (
     Camera,
     Capability,
     LinkMode,
+    PatrolProfile,
     Priority,
     SyncState,
     SystemStatus,
@@ -47,6 +48,11 @@ from prahari.edge.factory import (
     build_detector, build_source, warn_if_detector_cannot_see,
 )
 from prahari.edge.normalcy import NormalcyModel
+from prahari.edge.patrol.matcher import (
+    STRONG_MATCH, UNCERTAIN_MATCH, PatrolMatcher,
+)
+from prahari.edge.patrol.roster import PatrolRoster, seed_demo_patrols
+from prahari.edge.patrol.scenarios import run_scenarios
 from prahari.edge.pipeline import CameraPipeline
 from prahari.edge.segment.factory import build_segmenter
 from prahari.edge.crosscam.coordinator import CrossCameraCoordinator
@@ -95,6 +101,11 @@ class NodeRuntime:
         # Cross-camera reasoning is node-wide: one coordinator consumes tracks
         # from every pipeline.
         self.coordinator = CrossCameraCoordinator(demo_topology(), self.settings.node_id)
+        # Friendly-force suppression. The roster is declared configuration, the
+        # matcher is the policy; both are node-wide, because a patrol crosses
+        # cameras and its suppression budget has to be shared across them.
+        self.patrol_roster = PatrolRoster(self.db)
+        self.patrol = PatrolMatcher(self.patrol_roster)
         self.recent_handoffs = deque(maxlen=120)
         self._crosscam_task = None
         self.plate_reader = None
@@ -124,6 +135,10 @@ class NodeRuntime:
 
         if self.settings.demo_mode:
             bootstrap_demo_site(self.db, self.settings)
+            # Refreshed each start: the demo windows are relative to the clock,
+            # so that the patrol layer can be demonstrated at any hour. Profiles
+            # an operator entered are never touched.
+            seed_demo_patrols(self.patrol_roster, self.settings.node_id)
 
         self.detector = build_detector(self.settings)
         log.info("detector backend: %s", self.detector.describe())
@@ -187,6 +202,7 @@ class NodeRuntime:
             repeat_plates=self.repeat_plates,
             coordinator=self.coordinator,
             on_handoff=self._on_handoff,
+            patrol_matcher=self.patrol,
         )
         self.pipelines[camera.camera_id] = pipeline
         await pipeline.start()
@@ -785,6 +801,87 @@ async def crosscam_entity(global_id: int,
 
 
 # =====================================================================
+# Friendly-force (patrol) suppression
+# =====================================================================
+
+@app.get("/api/patrols", tags=["patrols"])
+async def list_patrols(principal: Principal = Depends(current_principal)):
+    """The declared patrol roster, plus what the layer has done with it."""
+    data = runtime.patrol_roster.as_dict()
+    data["metrics"] = runtime.patrol.metrics.as_dict()
+    data["policy"] = {
+        "strong_match": STRONG_MATCH,
+        "uncertain_match": UNCERTAIN_MATCH,
+        "note": ("A patrol profile is a declaration made by somebody at the "
+                 "post, not something the node inferred. Suppression requires "
+                 "every checkable cue to agree at once; matching a patrol's "
+                 "identity while breaking its expectations raises the priority "
+                 "instead of lowering it. No event is ever deleted or hidden."),
+    }
+    return data
+
+
+@app.post("/api/patrols", tags=["patrols"])
+async def upsert_patrol(profile: PatrolProfile,
+                        principal: Principal = Depends(require("admin"))):
+    saved = runtime.patrol_roster.upsert(profile)
+    runtime.db.audit(principal.username, "patrol.upsert", profile.patrol_id,
+                     {"cameras": profile.cameras, "active": profile.active,
+                      "windows": [w.describe() for w in profile.windows]})
+    return saved.model_dump(mode="json")
+
+
+@app.post("/api/patrols/{patrol_id}/active", tags=["patrols"])
+async def set_patrol_active(patrol_id: str, active: bool = True,
+                            principal: Principal = Depends(require("admin"))):
+    updated = runtime.patrol_roster.set_active(patrol_id, active)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="no such patrol profile")
+    runtime.db.audit(principal.username, "patrol.set_active", patrol_id,
+                     {"active": active})
+    return updated.model_dump(mode="json")
+
+
+@app.delete("/api/patrols/{patrol_id}", tags=["patrols"])
+async def delete_patrol(patrol_id: str,
+                        principal: Principal = Depends(require("admin"))):
+    if not runtime.patrol_roster.remove(patrol_id):
+        raise HTTPException(status_code=404, detail="no such patrol profile")
+    runtime.db.audit(principal.username, "patrol.delete", patrol_id)
+    return {"deleted": patrol_id}
+
+
+@app.get("/api/patrols/metrics", tags=["patrols"])
+async def patrol_metrics(principal: Principal = Depends(current_principal)):
+    """What the patrol layer did to this node's events during this run."""
+    return {
+        "metrics": runtime.patrol.metrics.as_dict(),
+        "budgets": runtime.patrol.budget_state(),
+        "active_profiles": sum(1 for p in runtime.patrol_roster.all() if p.active),
+    }
+
+
+@app.get("/api/patrols/scenarios", tags=["patrols"])
+async def patrol_scenarios(principal: Principal = Depends(current_principal)):
+    """Run the five reference scenarios through the real matching engine.
+
+    Nothing here is a stored result: the same `PatrolMatcher` the pipeline uses
+    is run over five fixed observations and its actual decisions are returned
+    alongside the expected ones, so a disagreement is visible rather than
+    presentable.
+    """
+    results = run_scenarios()
+    return {
+        "scenarios": results,
+        "all_passed": all(r["passed"] for r in results),
+        "note": ("Evaluated live against the production matching engine on "
+                 "fixed, timezone-independent observations. These are "
+                 "deterministic policy checks, not measurements on real "
+                 "footage."),
+    }
+
+
+# =====================================================================
 # Demo controls
 # =====================================================================
 
@@ -855,6 +952,24 @@ async def demo_action(req: DemoAction, principal: Principal = Depends(require("o
                 "note": "a subject will walk the corridor CAM-014 -> CAM-022 -> "
                         "CAM-011 at the learned transition times; watch "
                         "Cross-Camera for the handoffs"}
+
+    if action == "patrol":
+        # Walk the declared patrol on its own route, in its own direction. The
+        # matcher then has to decide, from the real track, whether this conforms
+        # - nothing about the outcome is pre-arranged.
+        ids = sim.inject_patrol(size=req.size or 2)
+        return {"status": "injected", "camera_id": camera_id, "actor_ids": ids,
+                "note": ("a foot patrol is walking its route inbound. If this "
+                         "camera is on an active patrol profile and the window "
+                         "is open, the resulting events are recorded and sealed "
+                         "but not raised as alerts - watch Patrol Suppression")}
+
+    if action == "patrol_reverse":
+        ids = sim.inject_patrol(size=req.size or 2, outbound=True)
+        return {"status": "injected", "camera_id": camera_id, "actor_ids": ids,
+                "note": ("the patrol is walking its route backwards. Matching "
+                         "the patrol on schedule and route while breaking its "
+                         "expected direction is escalated, not suppressed")}
 
     if action == "intrusion":
         actor = sim.inject_intruder()

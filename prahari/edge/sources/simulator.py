@@ -462,6 +462,47 @@ class SimulatedCamera(VideoSource):
         self._next_actor_id += 1
         return actor.actor_id
 
+    def inject_patrol(self, *, outbound: bool = False, speed: float = 1.3,
+                      size: int = 2, running: bool = False) -> list[int]:
+        """Walk a foot patrol along the fence ground, inbound or outbound.
+
+        Separate from `inject_intruder` because the patrol demonstration needs
+        the one thing an intruder injection does not offer: control of the
+        direction of travel. A patrol walking its route and a patrol walking it
+        backwards must be the same injection with one flag changed, or the
+        demonstration is not showing what it claims to.
+        """
+        z_near, z_far = self.visible_depth_range()
+        pace = speed * (3.2 if running else 1.0)
+        if outbound:
+            start_z = max(z_near, min(self.fence_distance_m * 0.55, z_far * 0.35))
+            vz = +pace
+        else:
+            start_z = min(self.fence_distance_m + 18.0, z_far * 0.92)
+            vz = -pace
+
+        half_width_m = start_z * math.tan(math.radians(self.fov_deg / 2.0))
+        ids: list[int] = []
+        for i in range(max(1, size)):
+            lateral = -half_width_m * 0.40 + i * min(1.6, half_width_m * 0.18)
+            actor = Actor(
+                actor_id=self._next_actor_id,
+                object_class=ObjectClass.PERSON,
+                x=lateral, z=start_z + i * 1.5,
+                # Converge gently on the axis so the patrol stays in frame for
+                # the whole transit rather than drifting out of the side.
+                vx=-lateral / max(1.0, abs((start_z - z_near) / max(pace, 0.1))),
+                vz=vz,
+                t_spawn=self._sim_time + i * 0.6,
+                t_despawn=self._sim_time + 90.0,
+                label="patrol",
+                scripted=True,
+            )
+            self._actors.append(actor)
+            ids.append(actor.actor_id)
+            self._next_actor_id += 1
+        return ids
+
     def inject_loiterer(self, dwell_seconds: float = 90.0) -> int:
         actor = Actor(
             actor_id=self._next_actor_id,

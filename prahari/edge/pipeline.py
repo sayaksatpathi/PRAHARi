@@ -49,7 +49,9 @@ from prahari.common.models import (
     EventType,
     EvidenceRef,
     ObjectClass,
+    PatrolDecision,
     Priority,
+    PriorityFactor,
     Track,
     Zone,
 )
@@ -60,6 +62,7 @@ from prahari.edge.anpr import (
 from prahari.edge.detect.base import Detector
 from prahari.edge.evidence import EvidenceBuffer, EvidenceLedger, EvidenceStore, PendingClip
 from prahari.edge.normalcy import NormalcyModel
+from prahari.edge.patrol.matcher import Observation as PatrolObservation
 from prahari.edge.priority import ScoringContext, score_event
 from prahari.edge.profiling.certificate import issue_certificate
 from prahari.edge.profiling.measure import CameraProfiler
@@ -120,6 +123,7 @@ class CameraPipeline:
         segmenter: Segmenter | None = None,
         coordinator=None,
         on_handoff=None,
+        patrol_matcher=None,
     ) -> None:
         self.camera = camera
         self.source = source
@@ -141,6 +145,10 @@ class CameraPipeline:
         # Second-stage segmentation, invoked only on important events.
         self.segmenter = segmenter
         self._latest_raw_image = None
+        # Friendly-force suppression (node-wide roster and budgets). None
+        # means the feature is not configured, and every event takes the normal
+        # path - the patrol layer is never silently half-on.
+        self.patrol_matcher = patrol_matcher
         # Cross-camera coordinator (node-wide), and track-lifecycle bookkeeping.
         self.coordinator = coordinator
         self.on_handoff = on_handoff
@@ -189,6 +197,7 @@ class CameraPipeline:
         # Best plate read per track, and when each track was last attempted.
         self._plate_reads: dict[int, Any] = {}
         self._plate_attempts: dict[int, int] = {}
+        self._patrol_obs = None
 
         # Profiling needs person detections before anything else can be granted,
         # so the first pass runs with exactly that and nothing more.
@@ -726,6 +735,26 @@ class CameraPipeline:
         )
         score, factors, priority = score_event(cand.event_type, track, sctx)
 
+        # --- friendly-force (patrol) assessment --------------------------
+        # Runs before segmentation deliberately. An event a declared patrol
+        # accounts for should not be spending the node's one expensive
+        # second-stage pass, and an event escalated as a patrol deviation
+        # should be more likely to get one.
+        patrol = self._assess_patrol(cand, track, now)
+        if patrol is not None and abs(patrol.score_adjustment) > 1e-6:
+            score = max(0.0, min(1.0, score + patrol.score_adjustment))
+            priority = _Priority.from_score(score)
+            if patrol.decision is PatrolDecision.DEVIATION:
+                # A deviation is never allowed to fall to the bottom of the
+                # pile. Being confidently the patrol and visibly not behaving
+                # like it is a real finding, not a weak one.
+                if priority.rank < _Priority.MEDIUM.rank:
+                    priority = _Priority.MEDIUM
+            factors = list(factors) + [PriorityFactor(
+                name="patrol assessment",
+                weight=round(patrol.score_adjustment, 3),
+                detail=patrol.reason)]
+
         # --- second-stage segmentation refinement -----------------------
         # Only for events that already cleared the priority bar and have a track
         # to prompt with. This is the whole point of the event-triggered design:
@@ -765,6 +794,7 @@ class CameraPipeline:
             timestamp=now,
             monotonic_ns=time.monotonic_ns(),
             summary=cand.summary,
+            patrol=patrol,
             detail={**cand.detail,
                     **({"anpr": plate.as_dict()} if (plate := self.plate_for(
                         track.track_id if track else None)) else {}),
@@ -815,7 +845,18 @@ class CameraPipeline:
 
         # Recording and alerting are separate decisions. Everything below is
         # recorded; the governor decides only whether it interrupts anybody.
-        if self.governor is not None:
+        #
+        # A suppressed patrol never reaches the governor at all. That ordering
+        # is deliberate: the governor rations *candidate* alerts against an
+        # operator's attention budget, and movement a declared patrol accounts
+        # for was never a candidate. Routing it through the governor would let
+        # a routine patrol consume budget that a real alert then could not get.
+        if patrol is not None and patrol.decision is PatrolDecision.SUPPRESSED:
+            event.alerted = False
+            event.alert_decision = patrol.reason
+            if self.patrol_matcher is not None:
+                self.patrol_matcher.spend_budget(patrol, self._patrol_obs)
+        elif self.governor is not None:
             decision = self.governor.decide(event)
             event.alerted = decision.alerted
             event.alert_decision = decision.reason
@@ -839,6 +880,45 @@ class CameraPipeline:
             subj(self.settings.node_id, "events", self.camera.camera_id),
             {"event": event.model_dump(mode="json")},
         )
+
+    def _assess_patrol(self, cand: EventCandidate, track, now: datetime):
+        """Ask the patrol layer whether a declared patrol accounts for this.
+
+        Returns None when the feature is not configured, so an unconfigured
+        node behaves exactly as it did before this milestone existed.
+        """
+        if self.patrol_matcher is None:
+            return None
+        trail: list[str] = []
+        if self.coordinator is not None and track is not None:
+            try:
+                trail = self.coordinator.trail_for(
+                    self.camera.camera_id, track.track_id)
+            except Exception:
+                log.debug("no cross-camera trail available", exc_info=True)
+        plate = self.plate_for(track.track_id if track else None)
+        obs = PatrolObservation(
+            camera_id=self.camera.camera_id,
+            when=now,
+            object_class=track.object_class if track else ObjectClass.UNKNOWN,
+            zone_id=cand.zone.zone_id if cand.zone else None,
+            zone_name=cand.zone.name if cand.zone else None,
+            heading_deg=track.direction_deg if track else None,
+            speed_mps=track.speed_mps if track else None,
+            group_size=cand.group_size,
+            dwell_seconds=track.dwell_seconds if track else 0.0,
+            plate=getattr(plate, "text", None) if plate else None,
+            route_trail=trail,
+        )
+        # Held for the budget charge, which happens only once the suppression
+        # has actually been acted on.
+        self._patrol_obs = obs
+        try:
+            return self.patrol_matcher.assess(obs)
+        except Exception:
+            log.exception("patrol assessment failed on %s; the event takes the "
+                          "normal alert path", self.camera.camera_id)
+            return None
 
     async def _refine(self, cand: EventCandidate, track):
         """Run the segmenter for one event, off the event loop."""

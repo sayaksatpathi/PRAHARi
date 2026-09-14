@@ -274,6 +274,17 @@ def compute_entry_hash(index: int, prev_hash: str, event: Event) -> str:
         "frame_sha256": ev.frame_sha256 if ev else None,
         "clip_sha256": ev.clip_sha256 if ev else None,
     }
+    # A decision not to interrupt a human is exactly the kind of thing that must
+    # not be editable afterwards, so the patrol determination is committed to as
+    # well. Added conditionally: an event with no patrol assessment hashes
+    # exactly as it did before this field existed, so chains written by earlier
+    # versions keep verifying after an upgrade.
+    if event.patrol is not None:
+        body["patrol"] = [
+            event.patrol.decision.value,
+            event.patrol.patrol_id,
+            round(event.patrol.match_score, 4),
+        ]
     blob = json.dumps(body, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 

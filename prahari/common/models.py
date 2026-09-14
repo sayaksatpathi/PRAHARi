@@ -500,10 +500,215 @@ class Event(BaseModel):
     alerted: bool = True
     alert_decision: str = ""
 
+    # Friendly-force assessment, when a patrol profile was in play. None means
+    # the patrol layer found nothing to consider; it never means "cleared".
+    patrol: PatrolAssessment | None = None
+
     acknowledged: bool = False
     acknowledged_by: str | None = None
     acknowledged_at: datetime | None = None
     operator_feedback: str | None = None   # "true_positive" | "false_alarm" | None
+
+
+# =====================================================================
+# Friendly force (patrol) suppression
+# =====================================================================
+
+class PatrolDecision(str, enum.Enum):
+    """What the patrol layer concluded about one event.
+
+    Deliberately four states rather than a boolean. A whitelist has two - known
+    or unknown - and that is exactly the property that makes a whitelist a
+    security hole, because everything resembling the known thing inherits its
+    immunity. Here, resembling a patrol without conforming to one is its own
+    outcome, and it raises the alert rather than lowering it.
+    """
+    NOT_MATCHED = "not_matched"   # no patrol accounts for this; normal pipeline
+    SUPPRESSED = "suppressed"     # conforms on every cue; recorded, not alerted
+    DOWNGRADED = "downgraded"     # probably the patrol, not certainly; retained, lowered
+    DEVIATION = "deviation"       # is the patrol, but is not behaving like it; escalated
+
+
+class PatrolWindow(BaseModel):
+    """When a patrol is expected to be on its route.
+
+    Times are minutes since local midnight, so a window can be read and edited
+    by a duty officer without a timezone argument. A window whose end is before
+    its start spans midnight, which is the common case for a night patrol.
+    """
+    days: list[int] = Field(
+        default_factory=list,
+        description="Weekday numbers, 0=Monday..6=Sunday. Empty means every day.")
+    start_minute: int = 0
+    end_minute: int = 1439
+    # Patrols are run by people, and people are late. Inside the window is a
+    # schedule match; inside the tolerance is "plausibly the same patrol,
+    # running behind" - which is explicitly NOT enough to suppress.
+    tolerance_minutes: int = 20
+    label: str = ""
+
+    @field_validator("start_minute", "end_minute")
+    @classmethod
+    def _in_day(cls, v: int) -> int:
+        if not 0 <= v <= 1439:
+            raise ValueError("minute-of-day must be in 0..1439")
+        return v
+
+    @property
+    def wraps_midnight(self) -> bool:
+        return self.end_minute < self.start_minute
+
+    def _contains_minute(self, minute: int) -> bool:
+        if self.wraps_midnight:
+            return minute >= self.start_minute or minute <= self.end_minute
+        return self.start_minute <= minute <= self.end_minute
+
+    def minutes_outside(self, when: datetime) -> float:
+        """0.0 if `when` falls inside the window, else how far outside, in minutes.
+
+        Returns infinity when the weekday does not match at all, because a
+        Tuesday patrol is not evidence about a Saturday.
+        """
+        weekday = when.weekday()
+        minute = when.hour * 60 + when.minute
+        if self.days and weekday not in self.days:
+            # A window that wraps midnight is still running in the following
+            # day's early minutes, so admit the previous day as well.
+            prev = (weekday - 1) % 7
+            if not (self.wraps_midnight and prev in self.days
+                    and minute <= self.end_minute):
+                return float("inf")
+        if self._contains_minute(minute):
+            return 0.0
+
+        def circular(a: int, b: int) -> float:
+            d = abs(a - b)
+            return float(min(d, 1440 - d))
+
+        return min(circular(minute, self.start_minute),
+                   circular(minute, self.end_minute))
+
+    def describe(self) -> str:
+        def hhmm(m: int) -> str:
+            return f"{m // 60:02d}:{m % 60:02d}"
+        days = ("daily" if not self.days else
+                " ".join(("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")[d]
+                         for d in sorted(self.days)))
+        return f"{hhmm(self.start_minute)}-{hhmm(self.end_minute)} {days}"
+
+
+class PatrolProfile(BaseModel):
+    """A declared friendly-force movement: who, where, when, which way.
+
+    A statement of what *should* happen, used in both directions. Movement that
+    conforms to it is not worth interrupting anyone for; movement that matches
+    the profile's identity but breaks one of its expectations is worth more than
+    an ordinary alert, because a patrol walking its route backwards at 03:00 is
+    either lost, under duress, or not the patrol.
+    """
+    patrol_id: str
+    name: str
+    sector: str = ""
+    active: bool = True
+
+    # Route: the camera sequence the patrol is expected to walk, and the zones
+    # on those cameras it is entitled to be in. A camera not on this list is not
+    # this patrol, full stop.
+    cameras: list[str] = Field(default_factory=list)
+    zones: list[str] = Field(default_factory=list)
+
+    windows: list[PatrolWindow] = Field(default_factory=list)
+
+    expected_heading_deg: float | None = None
+    heading_tolerance_deg: float = 70.0
+
+    object_classes: list[ObjectClass] = Field(
+        default_factory=lambda: [ObjectClass.PERSON])
+    max_group_size: int = 8
+    min_speed_mps: float = 0.0
+    max_speed_mps: float = 3.0
+
+    # Optional identifier. Prahari will not let identity grant a suppression
+    # unless the deployment has explicitly configured it, because "the system
+    # stopped alerting because it thought it recognised someone" is the failure
+    # mode that makes a video system inadmissible. Plate reading is the only
+    # identity signal on this node; face recognition is never granted at all
+    # (docs/privacy.md).
+    identity_matching_enabled: bool = False
+    vehicle_plates: list[str] = Field(default_factory=list)
+
+    # Bound on how much this profile may suppress within one window. A patrol is
+    # a handful of transits, not an open licence: once the budget is spent the
+    # remaining look-alikes go through the normal pipeline. This is the
+    # safeguard against somebody simply walking in behind the patrol - see
+    # docs/patrol-suppression.md.
+    max_suppressions_per_window: int = 6
+
+    notes: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=utcnow)
+
+    def covers_camera(self, camera_id: str) -> bool:
+        return camera_id in self.cameras
+
+    def window_for(self, when: datetime) -> tuple["PatrolWindow | None", float]:
+        """The nearest window to `when`, and how many minutes outside it we are."""
+        best: PatrolWindow | None = None
+        best_gap = float("inf")
+        for w in self.windows:
+            gap = w.minutes_outside(when)
+            # `best is None` must come first. A window on a day that does not
+            # match at all reports an infinite gap, and `inf < inf` is False -
+            # so comparing on the gap alone returned "this patrol has no window"
+            # for a wrong-day observation, which reads as a missing cue rather
+            # than as the decisive disagreement it actually is.
+            if best is None or gap < best_gap:
+                best, best_gap = w, gap
+        return best, best_gap
+
+
+class PatrolCue(BaseModel):
+    """One evaluated cue, kept so the operator can see the whole derivation."""
+    name: str
+    score: float            # 0..1, how well this cue agreed
+    weight: float           # its share of the assessment
+    evaluable: bool = True  # False when the data for it was not available
+    detail: str = ""
+
+
+class PatrolAssessment(BaseModel):
+    """The patrol layer's complete, auditable finding for one event.
+
+    Stored on the event and sealed into the hash chain, so the record of *why*
+    an operator was not interrupted is as tamper-evident as the record of the
+    event itself. A suppression that cannot be audited afterwards is worse than
+    no suppression at all.
+    """
+    decision: PatrolDecision = PatrolDecision.NOT_MATCHED
+    patrol_id: str | None = None
+    patrol_name: str | None = None
+    match_score: float = 0.0          # 0..1, bounded
+    identity_confidence: float = 0.0  # is this the patrol at all?
+    conformance: float = 0.0          # is it behaving as the patrol should?
+    cues: list[PatrolCue] = Field(default_factory=list)
+    reason: str = ""
+    score_adjustment: float = 0.0
+    deviations: list[str] = Field(default_factory=list)
+    candidates_considered: int = 0
+
+    # Expected versus observed, shown side by side in the operator UI, because
+    # "suppressed, trust me" is not a reviewable statement.
+    expected_route: list[str] = Field(default_factory=list)
+    expected_window: str | None = None
+    expected_heading_deg: float | None = None
+    observed_time: datetime | None = None
+    observed_heading_deg: float | None = None
+    observed_camera: str | None = None
+    observed_zone: str | None = None
+
+    @property
+    def matched(self) -> bool:
+        return self.decision is not PatrolDecision.NOT_MATCHED
 
 
 class SystemStatus(BaseModel):
