@@ -20,5 +20,9 @@ auto.crt
 auto.key
 
 # Datasets and run logs fetched/produced locally; never committed.
-datasets/
+
 *.log
+
+
+# Datasets are fetched, never committed (scripts/fetch_*.py reproduce them).
+datasets/
