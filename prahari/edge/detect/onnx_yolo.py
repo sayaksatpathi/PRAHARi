@@ -100,6 +100,7 @@ class OnnxYoloDetector(Detector):
         conf_threshold: float = 0.35,
         iou_threshold: float = 0.45,
         input_size: int = 640,
+        cuda_dll_dir=None,
     ) -> None:
         import onnxruntime as ort
 
@@ -107,7 +108,7 @@ class OnnxYoloDetector(Detector):
         if not self.model_path.exists():
             raise FileNotFoundError(f"ONNX model not found: {self.model_path}")
 
-        providers = self._select_providers(device, ort)
+        providers = self._select_providers(device, ort, cuda_dll_dir)
         self.session = ort.InferenceSession(str(self.model_path), providers=providers)
         self.device = "cuda" if "CUDAExecutionProvider" in self.session.get_providers() else "cpu"
         self.conf_threshold = conf_threshold
@@ -129,18 +130,23 @@ class OnnxYoloDetector(Detector):
         )
 
     @staticmethod
-    def _select_providers(device: str, ort) -> list[str]:
+    def _select_providers(device: str, ort, cuda_dll_dir=None) -> list[str]:
         available = ort.get_available_providers()
         if device == "cpu":
             return ["CPUExecutionProvider"]
-        if "CUDAExecutionProvider" in available and device in ("auto", "cuda"):
-            return ["CUDAExecutionProvider", "CPUExecutionProvider"]
-        if device == "cuda":
-            log.warning(
-                "CUDA requested but onnxruntime-gpu is not installed; falling back "
-                "to CPU. Install onnxruntime-gpu to use the GPU."
-            )
-        return ["CPUExecutionProvider"]
+        if "CUDAExecutionProvider" not in available:
+            if device == "cuda":
+                log.warning(
+                    "CUDA requested but onnxruntime-gpu is not installed; falling "
+                    "back to CPU. Install onnxruntime-gpu to use the GPU.")
+            return ["CPUExecutionProvider"]
+        # onnxruntime-gpu advertises CUDA whether or not the CUDA runtime is
+        # actually loadable, and a session that cannot load it falls back to the
+        # CPU without raising. Resolve the runtime first, so the provider list
+        # reflects what will really run - see prahari.common.cuda.
+        from prahari.common import cuda as cuda_support
+
+        return cuda_support.providers_for(device, cuda_dll_dir)
 
     def warmup(self) -> None:
         dummy = np.zeros((1, 3, self.input_size, self.input_size), dtype=np.float32)

@@ -56,7 +56,8 @@ def _build_sam(enc: Path, dec: Path, settings, required: bool) -> Segmenter | No
     try:
         from prahari.edge.segment.sam_onnx import SamOnnxSegmenter
 
-        seg = SamOnnxSegmenter(enc, dec, device=getattr(settings, "device", "auto"))
+        seg = SamOnnxSegmenter(enc, dec, device=getattr(settings, "device", "auto"),
+                               cuda_dll_dir=getattr(settings, "cuda_dll_dir", None))
         log.warning("segmentation: SAM 2 ONNX loaded but UNVALIDATED against real "
                     "weights on this machine - verify its masks on first real run "
                     "(docs/segmentation.md)")

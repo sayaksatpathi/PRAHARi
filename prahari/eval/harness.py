@@ -45,6 +45,9 @@ from prahari.edge.profiling.measure import CameraProfiler
 from prahari.edge.rules.engine import RuleContext, RuleEngine
 from prahari.edge.sources.base import VideoSource
 from prahari.edge.track.bytetrack import ByteTracker
+from prahari.eval.tracking import (
+    TrackingScorer, ground_truth_as_pairs, tracks_as_pairs,
+)
 from prahari.eval.metrics import DetectionCounts, EventScoring, match_detections
 
 
@@ -69,6 +72,9 @@ class ScenarioResult:
     throughput_fps: float
     granted_capabilities: list[str]
 
+    # Present only where the ground truth carries identities, i.e. real MOT
+    # sequences. None means "not scored", never "scored as zero".
+    tracking: dict[str, Any] | None = None
     notes: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
@@ -86,6 +92,7 @@ class ScenarioResult:
             "run_seconds": round(self.run_seconds, 1),
             "wall_seconds": round(self.wall_seconds, 1),
             "detection": self.detection.as_dict(),
+            "tracking": self.tracking,
             "events": self.events.as_dict(self.run_seconds),
             "profiling": {
                 "ground_plane_recovered": self.ground_plane_recovered,
@@ -329,6 +336,8 @@ class EvaluationHarness:
             raise RuntimeError(f"could not open source for {self.camera.camera_id}")
 
         detection = DetectionCounts()
+        # Identity-aware tracking metrics, scored on the same single pass.
+        tracking = TrackingScorer()
         frame_times: list[float] = []
         recovered_height = None
         track_ids_seen: set[int] = set()
@@ -380,6 +389,11 @@ class EvaluationHarness:
                 # Score detections against this frame's real ground truth.
                 if frame.ground_truth:
                     self._score_detections(detections, frame.ground_truth, detection)
+                    gt_pairs = ground_truth_as_pairs(frame.ground_truth)
+                    if gt_pairs:
+                        tracking.update(gt_pairs, tracks_as_pairs(
+                            [t for t in tracks
+                             if t.object_class is ObjectClass.PERSON]))
                 track_ids_seen.update(t.track_id for t in tracks)
                 max_concurrent = max(max_concurrent, len(tracks))
 
@@ -397,6 +411,14 @@ class EvaluationHarness:
             f"{len(track_ids_seen)} distinct tracks over the run, up to "
             f"{max_concurrent} concurrent.",
         ]
+        tracking_result = tracking.as_dict() if tracking.frames else None
+        if tracking_result:
+            notes.append(
+                f"Tracking scored on {tracking_result['frames_scored']} frames "
+                f"with identity ground truth: MOTA {tracking_result['mota']:.3f}, "
+                f"IDF1 {tracking_result['idf1']:.3f}, "
+                f"{tracking_result['id_switches']} ID switches over "
+                f"{tracking_result['gt_tracks']} ground-truth tracks.")
         if self.detector.describe().get("simulated"):
             notes.append(
                 "WARNING: the SYNTHETIC detector is loaded, which sees nothing in "
@@ -412,6 +434,7 @@ class EvaluationHarness:
             run_seconds=run_seconds,
             wall_seconds=wall_seconds,
             detection=detection,
+            tracking=tracking_result,
             events=EventScoring(),
             profiling_true_height_m=None,
             profiling_recovered_height_m=recovered_height,

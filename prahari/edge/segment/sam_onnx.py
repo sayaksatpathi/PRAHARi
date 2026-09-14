@@ -8,16 +8,24 @@ encoder+decoder ONNX models exist (e.g. vietanhdev/segment-anything-2.1-onnx-
 models), so segmentation becomes one more onnxruntime session — no torch, and the
 same CPU/CUDA execution-provider selection as everything else.
 
-A necessary, prominent caveat. This backend is written against the documented
-SAM 2 ONNX export interface, but it has NOT been run against real SAM weights on
-the build machine, because the weights (and onnxruntime-gpu) could not be
-downloaded on a ~0.1 MB/s connection. The pre/post-processing here follows the
-published SAM 2 convention and is defensive about output layout, but it must be
-validated the first time it runs against real weights. Until then the verified,
-tested segmentation path is GrabCut; this is the upgrade that slots in behind the
-same interface when the weights and a GPU are present. That honesty is the point:
-shipping elaborate, untested model glue as if it were verified is exactly the
-failure this project avoids elsewhere.
+**Validated against real weights** (v0.8): sam2_hiera_tiny encoder + decoder,
+CUDA execution provider, RTX 4050 6 GB. Before that it was written against the
+*documented* export interface and had never been run, which the module said
+plainly - and it was wrong in two ways that only real weights could reveal:
+
+  * `"mask_input" in name` also matches `has_mask_input`, so the boolean flag was
+    fed a (1, 1, 256, 256) tensor and the decoder rejected the rank;
+  * the encoder's outputs are (high_res_feats_0, high_res_feats_1, image_embed),
+    so taking `enc_out[0]` as the image embedding passed a 32x256x256 feature map
+    where a 256x64x64 embedding belonged.
+
+Both were silent-looking mistakes in glue that *reads* correct. That is the whole
+argument for the caveat this module used to carry, and for not shipping untested
+model bindings as though they were verified. Inputs and outputs are now bound by
+their exact names, taken from the loaded graph.
+
+GrabCut remains the fallback: no download, no GPU, and the tested path when SAM
+weights are absent.
 
 EdgeTAM (Apache-2.0, an on-device SAM 2 variant) fits the same interface; its
 documented export path is CoreML rather than ONNX today, so it is noted as a
@@ -45,7 +53,7 @@ class SamOnnxSegmenter(Segmenter):
     approximate = False
 
     def __init__(self, encoder_path: Path | str, decoder_path: Path | str,
-                 device: str = "auto") -> None:
+                 device: str = "auto", cuda_dll_dir=None) -> None:
         import onnxruntime as ort
 
         self.encoder_path = Path(encoder_path)
@@ -56,21 +64,45 @@ class SamOnnxSegmenter(Segmenter):
                 "at the configured paths - see docs/segmentation.md for where to "
                 "obtain them.")
 
-        providers = (["CUDAExecutionProvider", "CPUExecutionProvider"]
-                     if device in ("auto", "cuda") else ["CPUExecutionProvider"])
+        from prahari.common import cuda as cuda_support
+
+        # Resolves the CUDA runtime before asking for the provider, so the
+        # session does not advertise the GPU and then quietly run on the CPU.
+        providers = cuda_support.providers_for(device, cuda_dll_dir)
         self.encoder = ort.InferenceSession(str(self.encoder_path), providers=providers)
         self.decoder = ort.InferenceSession(str(self.decoder_path), providers=providers)
         self.device = ("cuda" if "CUDAExecutionProvider" in self.encoder.get_providers()
                        else "cpu")
         self._enc_input = self.encoder.get_inputs()[0].name
         self._enc_outputs = [o.name for o in self.encoder.get_outputs()]
-        self._dec_inputs = {i.name: i for i in self.decoder.get_inputs()}
-        log.info("SAM 2 ONNX loaded on %s (encoder %s, decoder %s)",
-                 self.device, self.encoder_path.name, self.decoder_path.name)
+        self._dec_inputs = [i.name for i in self.decoder.get_inputs()]
+        # The decoder's feature inputs are matched to the encoder's outputs by
+        # name rather than by position. Positional matching is what produced the
+        # 32x256x256-for-256x64x64 bug: the orders differ between exports, and
+        # an index that happens to work for one export silently corrupts another.
+        missing = [n for n in ("image_embed", "point_coords", "point_labels")
+                   if n not in self._dec_inputs]
+        if missing:
+            raise RuntimeError(
+                f"this SAM decoder export does not have the expected inputs "
+                f"{missing}; it has {self._dec_inputs}. The binding in this "
+                f"module is written for the standard SAM 2 ONNX export.")
+        log.info("SAM 2 ONNX loaded on %s (encoder %s, decoder %s); decoder "
+                 "inputs %s", self.device, self.encoder_path.name,
+                 self.decoder_path.name, self._dec_inputs)
 
     # -- preprocessing ---------------------------------------------------
     @staticmethod
-    def _preprocess(image: np.ndarray) -> tuple[np.ndarray, float, tuple[int, int]]:
+    def _preprocess(image: np.ndarray):
+        """Letterbox into the model's square input.
+
+        Returns the blob, the scale factor, the original size, and the extent
+        the real image occupies inside the square canvas. That last value is not
+        optional bookkeeping: the decoder returns a mask over the whole padded
+        canvas, and resizing the padded mask straight back to the frame size
+        stretches the object by the padding ratio - on a 16:9 frame that is a
+        44% vertical error, which looks like a plausible mask and is wrong.
+        """
         import cv2
 
         h, w = image.shape[:2]
@@ -84,21 +116,21 @@ class SamOnnxSegmenter(Segmenter):
         std = np.array([0.229, 0.224, 0.225], np.float32) * 255.0
         canvas = (canvas - mean) / std
         blob = canvas.transpose(2, 0, 1)[None].astype(np.float32)
-        return blob, scale, (h, w)
+        return blob, scale, (h, w), (nh, nw)
 
     # -- inference -------------------------------------------------------
     def segment(self, image: np.ndarray, box: BBox) -> SegmentResult | None:
         import cv2
 
         t0 = time.perf_counter()
-        blob, scale, (h, w) = self._preprocess(image)
+        blob, scale, (h, w), (nh, nw) = self._preprocess(image)
 
         try:
             enc_out = self.encoder.run(None, {self._enc_input: blob})
         except Exception:
             log.exception("SAM encoder failed")
             return None
-        image_embed = enc_out[0]
+        features = dict(zip(self._enc_outputs, enc_out))
 
         # Box prompt: SAM encodes a box as two labelled points - top-left (2) and
         # bottom-right (3) - in the model's input coordinate frame.
@@ -108,25 +140,24 @@ class SamOnnxSegmenter(Segmenter):
 
         feed: dict[str, Any] = {}
         for name in self._dec_inputs:
-            low = name.lower()
-            if "image_embed" in low or low in ("image_embeddings", "embeddings"):
-                feed[name] = image_embed
-            elif "point_coord" in low or low == "coords":
+            if name in features:                       # image_embed, high_res_feats_*
+                feed[name] = features[name]
+            elif name == "point_coords":
                 feed[name] = pts
-            elif "point_label" in low or low == "labels":
+            elif name == "point_labels":
                 feed[name] = labels
-            elif "mask_input" in low:
-                feed[name] = np.zeros((1, 1, 256, 256), np.float32)
-            elif "has_mask" in low:
+            elif name == "has_mask_input":
+                # Tested before `mask_input`: the latter is a substring of the
+                # former, and checking in the other order feeds a 4-D tensor to a
+                # 1-D flag. That was the bug.
                 feed[name] = np.zeros((1,), np.float32)
-            elif "orig_im_size" in low or "orig_size" in low:
+            elif name == "mask_input":
+                feed[name] = np.zeros((1, 1, 256, 256), np.float32)
+            elif name in ("orig_im_size", "orig_size"):
                 feed[name] = np.array([h, w], dtype=np.float32)
-            elif low.startswith("high_res") and len(enc_out) > 1:
-                # Some exports thread the encoder's high-res features to the
-                # decoder; pass them positionally by index in the encoder outputs.
-                idx = 1 if "0" in low else 2
-                if idx < len(enc_out):
-                    feed[name] = enc_out[idx]
+            else:
+                log.warning("SAM decoder input %r is not one this binding "
+                            "knows; leaving it unset", name)
 
         try:
             dec_out = self.decoder.run(None, feed)
@@ -135,10 +166,10 @@ class SamOnnxSegmenter(Segmenter):
                           "assumed export; see docs/segmentation.md)")
             return None
 
-        masks = dec_out[0]
-        scores = dec_out[1] if len(dec_out) > 1 else None
-        # masks: (1, N, Hm, Wm). Pick the highest-scoring proposal.
-        masks = np.asarray(masks)
+        masks = np.asarray(dec_out[0])
+        scores = np.asarray(dec_out[1]) if len(dec_out) > 1 else None
+        # masks: (num_labels, num_proposals, Hm, Wm). SAM returns several
+        # candidate masks per prompt; take the one it scores highest.
         if masks.ndim == 4:
             best = int(np.argmax(scores[0])) if scores is not None else 0
             mask = masks[0, best]
@@ -148,7 +179,14 @@ class SamOnnxSegmenter(Segmenter):
             score = 0.0
 
         mask = (mask > 0).astype(np.uint8)
-        if mask.shape[:2] != (h, w):
+        # Undo the letterbox before undoing the resize. The mask covers the
+        # padded square, so the padding is cropped off first and only the region
+        # the real image occupied is scaled back to frame size.
+        mh, mw = mask.shape[:2]
+        if (mh, mw) != (h, w):
+            ys = max(1, int(round(nh * mh / SAM_INPUT_SIZE)))
+            xs = max(1, int(round(nw * mw / SAM_INPUT_SIZE)))
+            mask = mask[:ys, :xs]
             mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_NEAREST)
 
         # Crop to the object's region to keep the result bbox-local.
@@ -162,9 +200,9 @@ class SamOnnxSegmenter(Segmenter):
         return finalise_mask(
             crop, offset=(x1, y1), backend=self.name, approximate=False,
             latency_ms=latency, score=score,
-            note="SAM 2 ONNX segmentation. NOTE: this backend has not been "
-                 "validated against real weights on the build machine; verify on "
-                 "first real run.",
+            note=f"SAM 2 ONNX segmentation on {self.device}; the mask is the "
+                 f"highest-scoring of the decoder's proposals "
+                 f"(predicted IoU {score:.2f}).",
         )
 
     def warmup(self) -> None:

@@ -81,6 +81,7 @@ def build_detector(settings: Settings) -> Detector:
                 device=settings.device,
                 conf_threshold=settings.detection_confidence,
                 iou_threshold=settings.nms_iou,
+                cuda_dll_dir=getattr(settings, "cuda_dll_dir", None),
             )
             log.info("detector: ONNX %s on %s", model_path.name, det.device)
             return det

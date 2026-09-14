@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     detector: str = "auto"          # auto | onnx | synthetic
     model_path: Path = Path("./models/yolo.onnx")
     device: str = "auto"            # auto | cpu | cuda
+    # Windows only. ONNX Runtime's CUDA provider loads the CUDA runtime by name
+    # at session creation, and since Python 3.8 PATH is not searched for
+    # extension-module DLLs. Point this at a directory holding cudart64_12.dll,
+    # cublas64_12.dll and cudnn64_9.dll; left empty, prahari.common.cuda looks
+    # in the usual places. See that module for why the failure mode matters.
+    cuda_dll_dir: Path | None = None
     inference_interval: int = 2     # run detector every Nth frame
     detection_confidence: float = 0.35
     nms_iou: float = 0.45

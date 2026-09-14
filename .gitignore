@@ -18,3 +18,7 @@ models/*.onnx
 # MediaMTX writes self-signed certs into its working directory
 auto.crt
 auto.key
+
+# Datasets and run logs fetched/produced locally; never committed.
+datasets/
+*.log
