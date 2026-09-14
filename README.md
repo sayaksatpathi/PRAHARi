@@ -313,7 +313,16 @@ detector and badges it in the dashboard. For CUDA: `pip install onnxruntime-gpu`
 ## Limitations
 
 Stated plainly, because a system for this domain that hides them is worse than
-one that has them.
+one that has them. The full, categorised list — what is measured, what is
+specified, and what is explicitly unknown — is
+[docs/limitations.md](docs/limitations.md).
+
+Prahari is the **video-intelligence layer of a multi-sensor system**, not the
+whole system: radar and PIDS have a defined integration hook and are not
+implemented ([docs/sensor-fusion.md](docs/sensor-fusion.md)). Deployment
+requirements, including what is measured on the prototype and what needs field
+measurement, are in
+[docs/deployment-profile.md](docs/deployment-profile.md).
 
 - **The detector is simulated unless you install a model.** The fallback models
   miss rate, class confusion and noise-driven false positives so the pipeline is
