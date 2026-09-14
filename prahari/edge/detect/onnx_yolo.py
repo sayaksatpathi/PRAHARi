@@ -113,6 +113,10 @@ class OnnxYoloDetector(Detector):
         self.device = "cuda" if "CUDAExecutionProvider" in self.session.get_providers() else "cpu"
         self.conf_threshold = conf_threshold
         self.iou_threshold = iou_threshold
+        # Input convention, probed from the model on the first real frame
+        # rather than assumed. See `_probe_preprocessing`.
+        self._scale_01: bool | None = None
+        self._swap_rb: bool | None = None
 
         inp = self.session.get_inputs()[0]
         self.input_name = inp.name
@@ -239,6 +243,68 @@ class OnnxYoloDetector(Detector):
         scores = class_scores[np.arange(class_scores.shape[0]), class_ids]
         return boxes, scores, class_ids
 
+    # -- input convention ------------------------------------------------
+    def _blob(self, canvas: np.ndarray, scale_01: bool, swap_rb: bool) -> np.ndarray:
+        pixels = canvas[:, :, ::-1] if swap_rb else canvas
+        blob = pixels.transpose(2, 0, 1)[None].astype(np.float32)
+        if scale_01:
+            blob /= 255.0
+        return np.ascontiguousarray(blob)
+
+    def _probe_preprocessing(self, canvas: np.ndarray) -> None:
+        """Work out what input this model actually wants, by trying.
+
+        Detector families disagree, and the disagreement is not visible in the
+        graph. Ultralytics YOLOv5/v8/v11 exports expect RGB scaled to 0..1;
+        YOLOX's released exports expect BGR at the raw 0..255 range and no
+        normalisation at all.
+
+        Getting this wrong does not raise. It produces an empty detection list
+        on every frame, which looks exactly like "the model cannot see anything
+        in this footage" - and that is a conclusion one might plausibly reach
+        about night-time border imagery, write down, and believe. It was in fact
+        reached about MOT17, where the correct answer is 63 confident people in
+        the first frame tried.
+
+        Measured on yolox_tiny against a MOT17 frame: 0.88 best score without
+        normalisation, 0.0001 with it. Four orders of magnitude, silently.
+
+        So the convention is probed once, from the data, on the first real frame
+        - the same principle as `_needs_yolox_decode` - and logged.
+        """
+        best = (-1.0, False, False)
+        results = []
+        for scale_01 in (False, True):
+            for swap_rb in (False, True):
+                try:
+                    raw = self.session.run(
+                        self.output_names,
+                        {self.input_name: self._blob(canvas, scale_01, swap_rb)})[0]
+                    _, scores, _ = self._decode(np.asarray(raw))
+                    top = float(scores.max()) if scores.size else 0.0
+                except Exception:
+                    top = -1.0
+                results.append((top, scale_01, swap_rb))
+                if top > best[0]:
+                    best = (top, scale_01, swap_rb)
+
+        _, self._scale_01, self._swap_rb = best
+        log.info(
+            "detector input convention probed: %s, %s (best score %.3f). "
+            "Alternatives scored %s",
+            "0..1 normalised" if self._scale_01 else "raw 0..255",
+            "RGB" if self._swap_rb else "BGR",
+            best[0],
+            ", ".join(f"{'norm' if a else 'raw'}/{'RGB' if b else 'BGR'}={t:.3f}"
+                      for t, a, b in results),
+        )
+        if best[0] < 0.05:
+            log.warning(
+                "no input convention produced a confident detection on this "
+                "frame (best %.4f). Either the imagery genuinely contains "
+                "nothing this model recognises, or the model does not match "
+                "this pre-processing at all.", best[0])
+
     # -- inference -------------------------------------------------------
     def infer(
         self,
@@ -250,8 +316,9 @@ class OnnxYoloDetector(Detector):
     ) -> list[Detection]:
         h0, w0 = image.shape[:2]
         canvas, ratio, (pad_x, pad_y) = letterbox(image, self.input_size)
-        blob = canvas[:, :, ::-1].transpose(2, 0, 1)[None].astype(np.float32) / 255.0
-        blob = np.ascontiguousarray(blob)
+        if self._scale_01 is None:
+            self._probe_preprocessing(canvas)
+        blob = self._blob(canvas, self._scale_01, self._swap_rb)
 
         try:
             raw = self.session.run(self.output_names, {self.input_name: blob})[0]
@@ -301,6 +368,10 @@ class OnnxYoloDetector(Detector):
             "simulated": False,
             "model_file": self.model_path.name,
             "input_size": self.input_size,
+            "input_convention": (
+                None if self._scale_01 is None else
+                f"{'0..1' if self._scale_01 else '0..255'}/"
+                f"{'RGB' if self._swap_rb else 'BGR'}"),
             "providers": list(self.session.get_providers()),
             "note": (
                 "Pretrained COCO-class detector. Performance on border imagery at "

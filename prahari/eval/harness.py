@@ -158,6 +158,7 @@ class EvaluationHarness:
 
         detection = DetectionCounts()
         events = EventScoring()
+        tracking = TrackingScorer()
         frame_times: list[float] = []
 
         recovered_height = None
@@ -198,6 +199,13 @@ class EvaluationHarness:
             # --- detection scoring, once past the profiling warm-up ---
             if not profiling and frame.ground_truth:
                 self._score_detections(detections, frame.ground_truth, detection)
+                # The simulator knows each actor's identity, so the tracker can
+                # be held to the same CLEAR-MOT/IDF1 standard here as on real
+                # footage - and the two columns are then directly comparable.
+                gt_pairs = ground_truth_as_pairs(frame.ground_truth)
+                if gt_pairs:
+                    tracking.update(gt_pairs, tracks_as_pairs(
+                        [t for t in tracks if t.object_class is ObjectClass.PERSON]))
 
             # --- feed the profiler; issue a certificate when ready ---
             if profiling:
@@ -305,6 +313,7 @@ class EvaluationHarness:
             run_seconds=run_seconds,
             wall_seconds=wall_seconds,
             detection=detection,
+            tracking=tracking.as_dict() if tracking.frames else None,
             events=events,
             profiling_true_height_m=self.true_camera_height_m,
             profiling_recovered_height_m=recovered_height,

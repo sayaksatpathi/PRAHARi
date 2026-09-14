@@ -369,6 +369,17 @@ class SimulatedCamera(VideoSource):
             if z_near <= z <= z_far and abs(x) <= half_width_m * 1.2:
                 continue
 
+            # A recycled actor is teleported to a new position on the far side
+            # of the scene. To any observer - and to the tracker - that is a
+            # *different* object arriving, not the same one moving, so it gets a
+            # fresh identity. Keeping the old actor_id made the ground truth
+            # claim one person had jumped across the frame, which charged the
+            # tracker an ID switch it had not made: the simulated IDF1 read
+            # 0.018 against 0.288 on real MOT17 footage, entirely as an artefact
+            # of this line. Only identity-aware scoring could surface it.
+            actor.actor_id = self._next_actor_id
+            self._next_actor_id += 1
+
             inv = self._rng.uniform(1.0 / (z_far * 0.90), 1.0 / (z_near * 1.12))
             new_z = float(1.0 / inv)
             new_half = new_z * math.tan(math.radians(self.fov_deg / 2.0)) * 0.80

@@ -261,10 +261,34 @@ class TrackingScorer:
         }
 
 
-def tracks_as_pairs(tracks) -> list[tuple[Any, list[float]]]:
-    """(track_id, [x1,y1,x2,y2]) for the scorer, from pipeline Track objects."""
+def tracks_as_pairs(tracks, observed_only: bool = True
+                    ) -> list[tuple[Any, list[float]]]:
+    """(track_id, [x1,y1,x2,y2]) for the scorer, from pipeline Track objects.
+
+    `observed_only` excludes tracks that were not matched to a detection on this
+    frame (`lost_frames > 0`), and defaults to on. The distinction matters and is
+    worth stating, because it changes the numbers by a large factor.
+
+    ByteTrack keeps a lost track alive internally for up to `max_lost_frames` so
+    it can be re-associated when the object reappears - correct behaviour, and
+    the whole point of two-stage association. But those coasting tracks are
+    *hypotheses*, not assertions that the object is visible. Scoring them as
+    output claims charged the tracker a false positive on every frame of every
+    coast: on one simulated camera that turned 4,463 real objects into 23,375
+    predicted boxes and 15 ground-truth tracks into 284 predicted ones, for a
+    MOTA of -4.07 that measured the eval harness rather than the tracker.
+
+    The pipeline itself already draws this line - profiling only accepts
+    observations with `lost_frames == 0`, because a coasted box is an estimate
+    and feeding estimates to a calibration fit injects the tracker's own drift.
+    The scorer now draws it in the same place.
+
+    Pass `observed_only=False` to score the full hypothesis set instead.
+    """
     out = []
     for t in tracks:
+        if observed_only and getattr(t, "lost_frames", 0) > 0:
+            continue
         b = t.bbox
         out.append((t.track_id, [b.x1, b.y1, b.x2, b.y2]))
     return out
@@ -274,14 +298,21 @@ def ground_truth_as_pairs(entries, object_class: str = "person"
                           ) -> list[tuple[Any, list[float]]]:
     """(track_id, box) for GT entries that carry an identity.
 
-    Entries without a `track_id` are skipped rather than given a synthetic one:
-    a fabricated identity would silently turn every frame into an ID switch.
+    Two sources, two key names for the same concept: MOT annotations carry
+    `track_id`, the simulator carries `actor_id`. Both are a persistent identity
+    for one object across frames, so both are accepted.
+
+    Entries with neither are skipped rather than given a synthetic id: a
+    fabricated identity would silently turn every frame into an ID switch, and
+    the resulting IDF1 would be a number about nothing.
     """
     out = []
     for e in entries or []:
         if object_class and e.get("object_class") != object_class:
             continue
         tid = e.get("track_id")
+        if tid is None:
+            tid = e.get("actor_id")
         if tid is None:
             continue
         out.append((tid, list(e["bbox"])))
