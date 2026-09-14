@@ -354,15 +354,14 @@ one that has them.
 
 The gap between this and something deployable, in priority order:
 
-1. **Real-footage validation.** The evaluation harness and a real-footage
-   adapter are built and tested: `prahari.eval.mot` ingests MOTChallenge
-   sequences with per-frame ground truth, and `scripts/evaluate.py --mot` scores
-   a real model's recall/precision against real annotations
-   ([docs/evaluation.md](docs/evaluation.md)). What remains is running the
-   multi-GB download on a normal connection — the build machine sustained only
-   ~0.1 MB/s, so the real numbers must be produced elsewhere. Everything
-   downstream of the download is done. VIRAT is set up but gated behind a signed
-   Data Protection Agreement, which is the deploying party's to accept.
+1. **Detector configuration is a candidate, not a decision.** A controlled
+   MOT17 benchmark ([docs/inference-stack.md](docs/inference-stack.md)) puts
+   YOLOX-Tiny @640 ahead on accuracy-per-compute: against the same weights at
+   416, recall rises 72% relative and MOTA 0.255 -> 0.412. Against YOLOX-S at
+   the same input, recall *falls* 9% for 52% more compute - more pixels beat a
+   bigger model here. What S buys is tighter boxes and half the identity
+   switches, which matter for dwell and handoff, so the CUDA rows (outstanding,
+   GPU occupied) decide whether that is affordable.
 2. **Cross-camera re-identification.** Track handoff, global entities and
    corridor-dropout detection are built and running
    ([docs/crosscam.md](docs/crosscam.md)); the appearance cue is an HSV colour
@@ -375,16 +374,22 @@ The gap between this and something deployable, in priority order:
    patrol called out at short notice correctly gets the normal alert path.
    Separating a person moving *with* a patrol from the patrol itself needs
    re-identification, and is the same gap as item 2.
-4. **SAM 2 GPU validation.** The event-triggered segmentation refinement is
-   built and running (GrabCut backend, verified live; SAM 2 ONNX backend written
-   behind the same interface). What remains is validating the SAM backend against
-   real weights on a GPU — deferred for the same connection reason as MOT17. See
+4. **SAM 2's GPU cost is unmeasured.** The backend is validated against real
+   weights (25/25 masks, IoU 0.975) and three bugs in it were found and fixed in
+   the process. What is missing is latency, FPS and VRAM on an idle GPU — every
+   measurement so far was taken under contention from an unrelated job, which
+   measures the queue rather than the model. See
    [docs/segmentation.md](docs/segmentation.md).
 5. **Thermal-specific models.** Real border night capability is thermal, and an
    RGB model on a thermal feed is a compromise.
-6. **Replay/evaluation harness** producing precision, recall and false-alarm rate
-   against annotated footage, so accuracy questions get numbers rather than
-   adjectives.
+6. **No domain footage.** This is the real remaining credibility gap. The
+   accuracy numbers above are MOT17 — daylight street pedestrians — and they do
+   not transfer to night, range, fog or a decade-old fog-lensed dome. The
+   harness, the adapter and the metrics are built and produce real figures the
+   moment annotated border footage exists; obtaining it under the appropriate
+   terms is the sponsoring organisation's to do. VIRAT is set up but gated
+   behind a signed Data Protection Agreement, which is theirs to accept, not
+   this tooling's ([docs/evaluation.md](docs/evaluation.md)).
 
 ---
 
@@ -400,7 +405,7 @@ prahari/
 │   └── core/          sector aggregator
 ├── web/               zero-build dashboard
 ├── scripts/           smoke tests and verification
-├── tests/             142 unit tests
+├── tests/             154 unit tests
 └── models/            ONNX models (not committed)
 ```
 
