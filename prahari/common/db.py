@@ -202,34 +202,91 @@ class Database:
         key = base64.urlsafe_b64encode(hashlib.sha256(secret_key.encode("utf-8")).digest())
         self._fernet = Fernet(key)
 
+        # We need a re-entrant lock because app logic often calls multiple
+        # methods in one conceptual transaction.
         self._lock = threading.RLock()
+        
+        # Apply migrations
+        conn = sqlite3.connect(str(self.path), timeout=5.0)
+        conn.row_factory = sqlite3.Row
+        with conn:
+            conn.executescript("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")
+            cursor = conn.execute("PRAGMA user_version")
+            version = cursor.fetchone()[0]
+            
+            # v0 -> v1 (Initial tables)
+            if version < 1:
+                conn.executescript(SCHEMA)
+                conn.execute("PRAGMA user_version = 1")
+                version = 1
+                
+            # v1 -> v2 (Add audits and feedback)
+            if version < 2:
+                conn.executescript("""
+                    CREATE TABLE IF NOT EXISTS audit_log (
+                        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp  TEXT NOT NULL,
+                        actor      TEXT NOT NULL,
+                        action     TEXT NOT NULL,
+                        target     TEXT NOT NULL,
+                        detail     TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS user_feedback (
+                        camera_id       TEXT NOT NULL,
+                        event_type      TEXT NOT NULL,
+                        true_positives  INTEGER NOT NULL DEFAULT 0,
+                        false_alarms    INTEGER NOT NULL DEFAULT 0,
+                        PRIMARY KEY (camera_id, event_type)
+                    );
+                """)
+                conn.execute("PRAGMA user_version = 2")
+                version = 2
+                
+            # v2 -> v3 (Add incidents, global_entities, plates, node_state)
+            if version < 3:
+                conn.executescript("""
+                    CREATE TABLE IF NOT EXISTS incidents (
+                        incident_id TEXT PRIMARY KEY,
+                        payload     TEXT NOT NULL,
+                        created_at  TEXT NOT NULL,
+                        updated_at  TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS global_entities (
+                        entity_id   TEXT PRIMARY KEY,
+                        payload     TEXT NOT NULL,
+                        updated_at  TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS plates (
+                        plate       TEXT PRIMARY KEY,
+                        payload     TEXT NOT NULL,
+                        updated_at  TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS node_state (
+                        key         TEXT PRIMARY KEY,
+                        payload     TEXT NOT NULL,
+                        updated_at  TEXT NOT NULL
+                    );
+                """)
+                conn.execute("PRAGMA user_version = 3")
+                version = 3
+        conn.close()
+
         self._conn = sqlite3.connect(
             str(self.path), check_same_thread=False, isolation_level=None
         )
         self._conn.row_factory = sqlite3.Row
         with self._lock:
-            # We don't use executescript for SCHEMA directly anymore to allow safe migrations
-            # First create meta table if not exists to check version
-            self._conn.execute("""
-            CREATE TABLE IF NOT EXISTS schema_meta (
-                key   TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            );
-            """)
-            
-            row = self._conn.execute("SELECT value FROM schema_meta WHERE key='version'").fetchone()
-            current_version = int(row[0]) if row else 1
-            
-            if current_version < 3:
-                # Version 3 adds incidents, global_entities, plates, node_state
-                # executescript is safe for CREATE TABLE IF NOT EXISTS
-                self._conn.executescript(SCHEMA)
-
             # Events are the thing we must not lose after an unclean shutdown.
             self._conn.execute("PRAGMA synchronous=FULL")
+            self._conn.execute('''
+                CREATE TABLE IF NOT EXISTS schema_meta (
+                    key   TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                )
+            ''')
             self._conn.execute(
                 "INSERT OR REPLACE INTO schema_meta(key, value) VALUES('version', ?)",
-                (str(SCHEMA_VERSION),),
+                (SCHEMA_VERSION,)
             )
 
     def close(self) -> None:
@@ -431,7 +488,7 @@ class Database:
         # SQLite compares ISO8601 strings lexicographically, so we can use string comparison on timestamp
         row = self.query_one(
             """SELECT COUNT(*) AS c FROM events 
-               WHERE camera_id=? AND IFNULL(zone_id, '')=? AND object_class=? AND timestamp >= ?""",
+               WHERE camera_id=? AND IFNULL(zone_id, '')=? AND object_class=? AND ts >= ?""",
             (camera_id, zone_id, object_class, _iso(since))
         )
         return int(row["c"]) if row else 0

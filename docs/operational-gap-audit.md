@@ -46,6 +46,12 @@ This document catalogues the missing operational features required to transition
 - **Implementation Plan:** Store a signed `manifest.json` with expected SHA256 hashes of the `.onnx` and `.pt` files. Verify before loading.
 - **Test Plan:** Tamper with a model file in tests and assert `prahari` refuses to boot.
 
+### 9. ONVIF Camera Validation
+- **Current State:** UNVALIDATED.
+- **Affected Files:** `prahari/edge/sources/onvif.py` (Missing)
+- **Risk:** High for physical deployments requiring WSDL-based PTZ and config negotiation.
+- **Implementation Plan:** Requires physical ONVIF test cameras or hardware-in-the-loop mock server. Currently defaults to explicit RTSP URIs.
+
 ### 7. Real Face Detection
 - **Current State:** IMPLEMENTED & TESTED.
 - **Affected Files:** `prahari/edge/pipeline.py`, `prahari/edge/factory.py`

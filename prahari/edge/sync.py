@@ -104,6 +104,8 @@ class SyncManager:
         node_id: str,
         *,
         core_token: str = "",
+        core_cert: str | tuple[str, str] | None = None,
+        core_verify: bool = True,
         retry_seconds: float = 10.0,
         batch_size: int = 25,
         queue_max_bytes: int = 2 * 1024 * 1024 * 1024,
@@ -113,6 +115,8 @@ class SyncManager:
         self.core_url = core_url.rstrip("/")
         self.node_id = node_id
         self.core_token = core_token
+        self.core_cert = core_cert
+        self.core_verify = core_verify
         self.retry_seconds = retry_seconds
         self.batch_size = batch_size
         self.queue_max_bytes = queue_max_bytes
@@ -142,7 +146,15 @@ class SyncManager:
         headers = {}
         if self.core_token:
             headers["Authorization"] = f"Bearer {self.core_token}"
-        return httpx.AsyncClient(timeout=timeout, headers=headers)
+        
+        cert = None
+        if hasattr(self, "core_cert") and self.core_cert:
+            cert = self.core_cert
+            
+        # Support self-signed certs in test environments if verify is overridden
+        verify = getattr(self, "core_verify", True)
+        
+        return httpx.AsyncClient(timeout=timeout, headers=headers, cert=cert, verify=verify)
 
     # -- lifecycle -------------------------------------------------------
     async def start(self) -> None:
