@@ -30,16 +30,29 @@ S_BINS = 4
 V_BINS = 4
 _HALF_LEN = H_BINS * S_BINS * V_BINS
 
+_embedder = None
+_embedder_loaded = False
+
+def _get_embedder():
+    global _embedder, _embedder_loaded
+    if not _embedder_loaded:
+        from prahari.edge.crosscam import reid
+        from prahari.common.config import get_settings
+        _embedder = reid.build_embedder(get_settings())
+        _embedder_loaded = True
+    return _embedder
 
 def signature(image: np.ndarray, box) -> np.ndarray | None:
-    """A normalised top/bottom HSV histogram for the object in `box`.
-
-    Returns a 1-D float32 vector, or None if the crop is too small to be
-    meaningful. The vector concatenates the upper-body and lower-body histograms
-    so that vertical colour structure (jacket vs trousers) is preserved.
+    """A signature for the object in `box`.
+    
+    Returns a 128-d embedding if the learned Re-ID model is present, otherwise
+    falls back to a normalised top/bottom HSV histogram.
     """
-    import cv2
+    embedder = _get_embedder()
+    if embedder is not None:
+        return embedder.embed(image, box)
 
+    import cv2
     h, w = image.shape[:2]
     x1 = int(max(0, box.x1)); y1 = int(max(0, box.y1))
     x2 = int(min(w, box.x2)); y2 = int(min(h, box.y2))
@@ -66,12 +79,18 @@ def signature(image: np.ndarray, box) -> np.ndarray | None:
 def similarity(a: np.ndarray | None, b: np.ndarray | None) -> float:
     """Appearance similarity in [0, 1]. 0 when either signature is missing.
 
-    Histogram intersection, averaged over the two body halves. Robust to the
-    small lighting shifts between cameras and cheap enough to run against every
-    open handoff candidate.
+    Dispatches to cosine similarity if the signatures are learned embeddings,
+    or histogram intersection if they are HSV fallbacks.
     """
     if a is None or b is None or a.shape != b.shape:
         return 0.0
+    
+    # The learned embedding is 128-d, while the HSV histogram is 256-d (8*4*4 * 2).
+    # This allows us to dispatch correctly.
+    if len(a) == 128:
+        from prahari.edge.crosscam import reid
+        return reid.similarity(a, b)
+
     inter = np.minimum(a, b).sum()
     # Each half is L1-normalised, so a perfect match sums to 2 across both halves.
     return float(inter / 2.0)
@@ -90,5 +109,11 @@ def blend(existing: np.ndarray | None, new: np.ndarray | None,
     if existing is None:
         return new
     out = (1 - alpha) * existing + alpha * new
+    
+    if len(out) == 128:
+        # L2 normalize the embedding
+        norm = np.linalg.norm(out)
+        return (out / norm).astype(np.float32) if norm > 0 else out
+
     s = out.sum()
     return (out / s * 2.0).astype(np.float32) if s > 0 else out

@@ -43,6 +43,7 @@ CONFIGS = [
     ("A", "YOLOX-Tiny @416", "yolox_tiny.onnx", 0),
     ("B", "YOLOX-Tiny @640", "yolox_tiny_dyn.onnx", 640),
     ("C", "YOLOX-S @640", "yolox_s.onnx", 0),
+    ("D", "YOLOv8n Fine-Tuned", "yolov8n_ft.onnx", 640),
 ]
 
 

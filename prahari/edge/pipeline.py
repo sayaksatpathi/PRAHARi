@@ -475,7 +475,7 @@ class CameraPipeline:
                 continue
             if t.track_id not in self._reported_tracks:
                 self._reported_tracks.add(t.track_id)
-                sig = appearance_signature(frame.image, t.bbox)
+                sig = appearance_signature(frame.image, t.bbox) if getattr(t, 'confidence', 0.0) >= 0.45 else None
                 self._track_sig_at[t.track_id] = self._frame_index
                 finding = self.coordinator.on_track_confirmed(
                     self.camera.camera_id, t.track_id, t.object_class.value,
@@ -484,7 +484,7 @@ class CameraPipeline:
                     self.on_handoff(finding)
             elif self._frame_index - self._track_sig_at.get(t.track_id, 0) >= 15:
                 self._track_sig_at[t.track_id] = self._frame_index
-                sig = appearance_signature(frame.image, t.bbox)
+                sig = appearance_signature(frame.image, t.bbox) if getattr(t, 'confidence', 0.0) >= 0.45 else None
                 self.coordinator.on_track_update(
                     self.camera.camera_id, t.track_id, sig, when)
 
