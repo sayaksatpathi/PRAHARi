@@ -28,7 +28,7 @@ from prahari.common.models import (
     Zone,
 )
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -146,6 +146,31 @@ CREATE TABLE IF NOT EXISTS audit_log (
     detail     TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts DESC);
+
+CREATE TABLE IF NOT EXISTS incidents (
+    incident_id TEXT PRIMARY KEY,
+    payload     TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS global_entities (
+    entity_id   TEXT PRIMARY KEY,
+    payload     TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS plates (
+    plate       TEXT PRIMARY KEY,
+    payload     TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS node_state (
+    key         TEXT PRIMARY KEY,
+    payload     TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
 """
 
 
@@ -164,16 +189,42 @@ class Database:
     writer contention entirely.
     """
 
-    def __init__(self, path: Path | str) -> None:
+    def __init__(self, path: Path | str, secret_key: str = "") -> None:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Setup credential encryption
+        import base64
+        import hashlib
+        from cryptography.fernet import Fernet
+        
+        # Derive a 32-byte urlsafe base64 key from the provided secret
+        key = base64.urlsafe_b64encode(hashlib.sha256(secret_key.encode("utf-8")).digest())
+        self._fernet = Fernet(key)
+
         self._lock = threading.RLock()
         self._conn = sqlite3.connect(
             str(self.path), check_same_thread=False, isolation_level=None
         )
         self._conn.row_factory = sqlite3.Row
         with self._lock:
-            self._conn.executescript(SCHEMA)
+            # We don't use executescript for SCHEMA directly anymore to allow safe migrations
+            # First create meta table if not exists to check version
+            self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS schema_meta (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+            """)
+            
+            row = self._conn.execute("SELECT value FROM schema_meta WHERE key='version'").fetchone()
+            current_version = int(row[0]) if row else 1
+            
+            if current_version < 3:
+                # Version 3 adds incidents, global_entities, plates, node_state
+                # executescript is safe for CREATE TABLE IF NOT EXISTS
+                self._conn.executescript(SCHEMA)
+
             # Events are the thing we must not lose after an unclean shutdown.
             self._conn.execute("PRAGMA synchronous=FULL")
             self._conn.execute(
@@ -198,6 +249,22 @@ class Database:
         rows = self.query(sql, params)
         return rows[0] if rows else None
 
+    def _encrypt_camera(self, cam: Camera) -> str:
+        d = cam.model_dump(mode="json")
+        if d.get("password"):
+            d["password"] = self._fernet.encrypt(d["password"].encode("utf-8")).decode("ascii")
+        return json.dumps(d)
+
+    def _decrypt_camera(self, payload: str) -> Camera:
+        d = json.loads(payload)
+        pwd = d.get("password")
+        if pwd and pwd.startswith("gAAAAA"):
+            try:
+                d["password"] = self._fernet.decrypt(pwd.encode("ascii")).decode("utf-8")
+            except Exception:
+                pass
+        return Camera.model_validate(d)
+
     # -- cameras --------------------------------------------------------
     def upsert_camera(self, cam: Camera) -> None:
         now = _iso(datetime.now(timezone.utc))
@@ -206,16 +273,16 @@ class Database:
                VALUES(?,?,?,?)
                ON CONFLICT(camera_id) DO UPDATE SET payload=excluded.payload,
                                                     updated_at=excluded.updated_at""",
-            (cam.camera_id, cam.model_dump_json(), now, now),
+            (cam.camera_id, self._encrypt_camera(cam), now, now),
         )
 
     def get_camera(self, camera_id: str) -> Camera | None:
         row = self.query_one("SELECT payload FROM cameras WHERE camera_id=?", (camera_id,))
-        return Camera.model_validate_json(row["payload"]) if row else None
+        return self._decrypt_camera(row["payload"]) if row else None
 
     def list_cameras(self) -> list[Camera]:
         rows = self.query("SELECT payload FROM cameras ORDER BY camera_id")
-        return [Camera.model_validate_json(r["payload"]) for r in rows]
+        return [self._decrypt_camera(r["payload"]) for r in rows]
 
     def delete_camera(self, camera_id: str) -> bool:
         cur = self.execute("DELETE FROM cameras WHERE camera_id=?", (camera_id,))
@@ -360,6 +427,15 @@ class Database:
             row = self.query_one("SELECT COUNT(*) AS c FROM events")
         return int(row["c"]) if row else 0
 
+    def recent_event_count(self, camera_id: str, zone_id: str, object_class: str, since: datetime) -> int:
+        # SQLite compares ISO8601 strings lexicographically, so we can use string comparison on timestamp
+        row = self.query_one(
+            """SELECT COUNT(*) AS c FROM events 
+               WHERE camera_id=? AND IFNULL(zone_id, '')=? AND object_class=? AND timestamp >= ?""",
+            (camera_id, zone_id, object_class, _iso(since))
+        )
+        return int(row["c"]) if row else 0
+
     def alerts_since(self, epoch: float, min_rank: int = 2) -> int:
         row = self.query_one(
             "SELECT COUNT(*) AS c FROM events WHERE ts_epoch >= ? "
@@ -483,6 +559,82 @@ class Database:
     def all_feedback(self) -> list[dict[str, Any]]:
         rows = self.query("SELECT * FROM feedback_stats")
         return [dict(r) for r in rows]
+
+    def verify_ledger(self) -> dict[str, Any]:
+        return self._ledger.verify() if hasattr(self, "_ledger") else {}
+
+    # -- incidents ------------------------------------------------------
+    def upsert_incident(self, incident: Any) -> None:
+        now = _iso(datetime.now(timezone.utc))
+        self.execute(
+            """INSERT INTO incidents(incident_id, payload, created_at, updated_at)
+               VALUES(?,?,?,?)
+               ON CONFLICT(incident_id) DO UPDATE SET payload=excluded.payload,
+                                                      updated_at=excluded.updated_at""",
+            (incident.incident_id, incident.model_dump_json(), incident.created_at.isoformat(), now),
+        )
+
+    def get_incident(self, incident_id: str) -> Any | None:
+        row = self.query_one("SELECT payload FROM incidents WHERE incident_id=?", (incident_id,))
+        # Late import or model_validate_json
+        from prahari.common.models import Incident
+        return Incident.model_validate_json(row["payload"]) if row else None
+
+    def list_incidents(self) -> list[Any]:
+        rows = self.query("SELECT payload FROM incidents ORDER BY created_at DESC")
+        from prahari.common.models import Incident
+        return [Incident.model_validate_json(r["payload"]) for r in rows]
+
+    # -- global entities ------------------------------------------------
+    def upsert_global_entity(self, entity_id: str, payload: dict) -> None:
+        now = _iso(datetime.now(timezone.utc))
+        self.execute(
+            """INSERT INTO global_entities(entity_id, payload, updated_at)
+               VALUES(?,?,?)
+               ON CONFLICT(entity_id) DO UPDATE SET payload=excluded.payload,
+                                                    updated_at=excluded.updated_at""",
+            (entity_id, json.dumps(payload), now),
+        )
+
+    def list_global_entities(self) -> dict[str, dict]:
+        rows = self.query("SELECT entity_id, payload FROM global_entities")
+        return {r["entity_id"]: json.loads(r["payload"]) for r in rows}
+
+    def delete_global_entity(self, entity_id: str) -> None:
+        self.execute("DELETE FROM global_entities WHERE entity_id=?", (entity_id,))
+
+    # -- plates ---------------------------------------------------------
+    def upsert_plate_sighting(self, plate: str, payload: dict) -> None:
+        now = _iso(datetime.now(timezone.utc))
+        self.execute(
+            """INSERT INTO plates(plate, payload, updated_at)
+               VALUES(?,?,?)
+               ON CONFLICT(plate) DO UPDATE SET payload=excluded.payload,
+                                                updated_at=excluded.updated_at""",
+            (plate, json.dumps(payload), now),
+        )
+
+    def list_plates(self) -> dict[str, dict]:
+        rows = self.query("SELECT plate, payload FROM plates")
+        return {r["plate"]: json.loads(r["payload"]) for r in rows}
+        
+    def delete_plate(self, plate: str) -> None:
+        self.execute("DELETE FROM plates WHERE plate=?", (plate,))
+
+    # -- node state -----------------------------------------------------
+    def set_node_state(self, key: str, payload: dict) -> None:
+        now = _iso(datetime.now(timezone.utc))
+        self.execute(
+            """INSERT INTO node_state(key, payload, updated_at)
+               VALUES(?,?,?)
+               ON CONFLICT(key) DO UPDATE SET payload=excluded.payload,
+                                              updated_at=excluded.updated_at""",
+            (key, json.dumps(payload), now),
+        )
+
+    def get_node_state(self, key: str) -> dict | None:
+        row = self.query_one("SELECT payload FROM node_state WHERE key=?", (key,))
+        return json.loads(row["payload"]) if row else None
 
     # -- audit ----------------------------------------------------------
     def audit(self, actor: str, action: str, target: str = "", detail: Any = "") -> None:

@@ -152,6 +152,8 @@ class RuleEngine:
 
             # Applies under both doctrines.
             out.extend(self._loitering(state, track, active, ctx))
+            out.extend(self._night_movement(state, track, active, ctx))
+            out.extend(self._suspicious_activity(state, track, active, ctx))
 
         out.extend(self._group_movement(tracks, active, ctx))
         return out
@@ -404,3 +406,49 @@ class RuleEngine:
                 group_size=len(member_ids),
             ))
         return out
+
+    def _night_movement(self, state, track: Track, zones: list[Zone],
+                        ctx: RuleContext) -> list[EventCandidate]:
+        if not ctx.is_night:
+            return []
+            
+        if track.hits < 5:
+            return []
+            
+        if not self._fire_once(state, "night_movement"):
+            return []
+            
+        return [EventCandidate(
+            event_type=EventType.NIGHT_MOVEMENT,
+            track=track, zone=None,
+            summary=f"{track.object_class.value.title()} movement detected during night hours",
+            dedupe_key=f"{self.camera_id}:{track.track_id}:night",
+            detail={}
+        )]
+
+    def _suspicious_activity(self, state, track: Track, zones: list[Zone],
+                             ctx: RuleContext) -> list[EventCandidate]:
+        if track.hits < 30:
+            return []
+            
+        if not self._fire_once(state, "suspicious_activity"):
+            return []
+            
+        if len(track.history) > 20:
+            import math
+            path_len = sum(math.hypot(p2.x - p1.x, p2.y - p1.y)
+                           for p1, p2 in zip(track.history, track.history[1:]))
+            start = track.history[0]
+            end = track.history[-1]
+            displacement = math.hypot(end.x - start.x, end.y - start.y)
+            
+            if path_len > 0.3 and displacement < path_len * 0.3:
+                return [EventCandidate(
+                    event_type=EventType.SUSPICIOUS_ACTIVITY,
+                    track=track, zone=None,
+                    summary=f"{track.object_class.value.title()} exhibiting erratic/suspicious movement patterns",
+                    dedupe_key=f"{self.camera_id}:{track.track_id}:suspicious",
+                    extra_factors={"erratic movement": 0.2},
+                    detail={"path_len": round(path_len, 3), "displacement": round(displacement, 3)}
+                )]
+        return []

@@ -103,6 +103,7 @@ class SyncManager:
         core_url: str,
         node_id: str,
         *,
+        core_token: str = "",
         retry_seconds: float = 10.0,
         batch_size: int = 25,
         queue_max_bytes: int = 2 * 1024 * 1024 * 1024,
@@ -111,6 +112,7 @@ class SyncManager:
         self.db = db
         self.core_url = core_url.rstrip("/")
         self.node_id = node_id
+        self.core_token = core_token
         self.retry_seconds = retry_seconds
         self.batch_size = batch_size
         self.queue_max_bytes = queue_max_bytes
@@ -135,6 +137,12 @@ class SyncManager:
 
     def attach_evidence_store(self, store) -> None:
         self._evidence_store = store
+
+    def _client(self, timeout: float) -> httpx.AsyncClient:
+        headers = {}
+        if self.core_token:
+            headers["Authorization"] = f"Bearer {self.core_token}"
+        return httpx.AsyncClient(timeout=timeout, headers=headers)
 
     # -- lifecycle -------------------------------------------------------
     async def start(self) -> None:
@@ -169,7 +177,7 @@ class SyncManager:
             self.core_reachable = False
             return False
         try:
-            async with httpx.AsyncClient(timeout=4.0) as client:
+            async with self._client(timeout=4.0) as client:
                 r = await client.get(self.core_url + "/health")
             self.core_reachable = r.status_code == 200
             if self.core_reachable:
@@ -222,7 +230,7 @@ class SyncManager:
             "events": [e.model_dump(mode="json") for e in batch],
         }
         try:
-            async with httpx.AsyncClient(timeout=20.0) as client:
+            async with self._client(timeout=20.0) as client:
                 r = await client.post(self.core_url + "/api/ingest/events", json=payload)
                 r.raise_for_status()
                 body = r.json()
@@ -269,7 +277,7 @@ class SyncManager:
             return
         try:
             blob = path.read_bytes()
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with self._client(timeout=30.0) as client:
                 r = await client.post(
                     f"{self.core_url}/api/ingest/evidence/{event.event_id}",
                     content=blob,

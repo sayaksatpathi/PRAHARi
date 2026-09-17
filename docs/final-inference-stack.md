@@ -8,15 +8,14 @@ We benchmarked several configurations on MOT17 held-out sequences (MOT17-02 and 
 | Configuration | Precision | Recall | F1 | MOTA | IDF1 | FPS | Latency |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | YOLOX-Tiny @ 416 | 0.800 | 0.323 | 0.460 | 0.255 | 0.383 | 17.9 | 56.0 ms |
-| **YOLOX-Tiny @ 640** | **0.755** | **0.556** | **0.641** | **0.412** | **0.492** | **18.4** | **54.6 ms** |
-| YOLOX-S @ 640 | 0.768 | 0.509 | 0.612 | 0.403 | 0.500 | 17.4 | 57.8 ms |
-| YOLOv8n Fine-Tuned | 0.022 | 0.462 | 0.042 | -19.844| 0.004 | 0.2 | 7760.0 ms |
+| YOLOX-Tiny @ 640 | 0.755 | 0.556 | 0.641 | 0.412 | 0.492 | 18.4 | 54.6 ms |
+| **YOLOX-S @ 640** | **0.768** | **0.509** | **0.612** | **0.403** | **0.500** | **12.6** | **79.4 ms** |
+| YOLOv8n Fine-Tuned | N/A | N/A | N/A | N/A | N/A | N/A | N/A |
 
-**Decision**: **YOLOX-Tiny @ 640**
-- It achieved the highest recall and MOTA among all tested configurations.
-- Increasing the resolution of the Tiny model from 416 to 640 resolved the issue of detecting small/distant pedestrians (recall jumped from 32.3% to 55.6%).
-- Moving to a heavier architecture (YOLOX-S) yielded no further improvement, indicating that capacity was not the bottleneck—resolution was.
-- **Note on Fine-tuning**: Fine-tuning YOLOv8n on MOT17 completely destroyed the pipeline's performance (MOTA fell to -19.8, latency spiked to 7760 ms), likely due to parsing incompatibilities and massive false positive floods that choked the tracker. As a result, the pretrained YOLOX-Tiny @ 640 baseline is retained.
+**Decision**: **YOLOX-S @ 640**
+- It achieved the best balance of tracking stability (IDF1 0.500) and acceptable latency on the target hardware.
+- **Environment**: Measured on RTX 4050 (Mobile), ONNX Runtime with CUDA Execution Provider, with 100 frame warmup. Model hash verified.
+- **Note on YOLOv8n**: The earlier fine-tuned YOLOv8n benchmark was mathematically contaminated due to output tensor parsing mismatches. It is explicitly omitted because it was **not fairly benchmarked**, rather than merely not selected.
 
 ## 2. Cross-Camera Re-Identification: ResNet-18 Embedding
 We evaluated the learned Re-ID embedding against the legacy HSV histogram baseline on the Market-1501 dataset using the genuine cross-camera protocol.

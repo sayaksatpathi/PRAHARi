@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     #     netsh int ipv4 show excludedportrange protocol=tcp
     host: str = "127.0.0.1"
     port: int = 8420
+    ssl_certfile: Path | None = None
+    ssl_keyfile: Path | None = None
 
     # --- Storage -----------------------------------------------------------
     data_dir: Path = Path("./var")
@@ -99,6 +101,7 @@ class Settings(BaseSettings):
 
     # --- Store-and-forward -------------------------------------------------
     core_url: str = "http://127.0.0.1:9000"
+    core_token: str = ""
     sync_enabled: bool = True
     sync_retry_seconds: float = 10.0
     sync_batch_size: int = 25

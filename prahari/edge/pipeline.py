@@ -351,6 +351,17 @@ class CameraPipeline:
                 frame_index=self._frame_index, context=context,
             )
 
+            # Face Detection
+            from prahari.edge.profiling.certificate import Capability
+            if Capability.FACE_DETECTION in allowed:
+                if getattr(self, "_face_detector", None) is None:
+                    from prahari.edge.detect.face import FaceDetector
+                    self._face_detector = FaceDetector()
+                
+                self._faces = self._face_detector.detect(frame.image)
+            else:
+                self._faces = []
+
         self._tracks = self.tracker.update(
             self._detections if run_detector else [], frame.timestamp, ts
         )
@@ -681,7 +692,13 @@ class CameraPipeline:
                         cv2.FONT_HERSHEY_SIMPLEX, 0.45, colour, 1, cv2.LINE_AA)
             if len(t.history) > 2:
                 trail = np.array([[p.x, p.y] for p in t.history], dtype=np.int32)
-                cv2.polylines(canvas, [trail], False, colour, 1, cv2.LINE_AA)
+                cv2.polylines(canvas, [trail], False, colour, 2, cv2.LINE_AA)
+
+        if getattr(self, "_faces", None):
+            for (fx, fy, fw, fh) in self._faces:
+                cv2.rectangle(canvas, (fx, fy), (fx + fw, fy + fh), (200, 200, 50), 1)
+                cv2.putText(canvas, "face", (fx, max(12, fy - 4)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 50), 1, cv2.LINE_AA)
 
         banner = (f"{self.camera.camera_id}  |  {self.state.upper()}  |  "
                   f"{self.measured_fps:.1f} fps  |  {len(self._tracks)} tracked")

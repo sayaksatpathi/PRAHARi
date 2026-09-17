@@ -107,6 +107,23 @@ class Entity:
             ],
         }
 
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "Entity":
+        return cls(
+            global_id=d["global_id"],
+            object_class=d["object_class"],
+            signature=None,
+            first_seen=datetime.fromisoformat(d["first_seen"]),
+            last_seen=datetime.fromisoformat(d["last_seen"]),
+            current_camera=d["current_camera"],
+            sightings=[
+                [s["camera"], datetime.fromisoformat(s["enter"]),
+                 datetime.fromisoformat(s["exit"]) if s["exit"] else None]
+                for s in d.get("sightings", [])
+            ],
+            handoffs=d.get("handoffs", 0),
+        )
+
 
 class CrossCameraCoordinator:
     def __init__(self, topology: Topology, node_id: str = "node",

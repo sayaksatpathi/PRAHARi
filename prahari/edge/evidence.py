@@ -125,8 +125,11 @@ class EvidenceStore:
         self.root.mkdir(parents=True, exist_ok=True)
 
     def _dir_for(self, camera_id: str, event_id: str, when: datetime) -> Path:
+        import re
+        c = re.sub(r'[^a-zA-Z0-9_\-]', '', camera_id)
+        e = re.sub(r'[^a-zA-Z0-9_\-]', '', event_id)
         d = (self.root / when.strftime("%Y") / when.strftime("%m") / when.strftime("%d")
-             / camera_id / event_id)
+             / c / e)
         d.mkdir(parents=True, exist_ok=True)
         return d
 
@@ -182,6 +185,53 @@ class EvidenceStore:
         mask_path = d / "mask.png"
         cv2.imwrite(str(mask_path), overlay)
         return mask_path, sha256_file(mask_path)
+
+    def prune(self, days: int) -> int:
+        """Delete evidence older than the given number of days.
+        
+        Border outposts have finite storage, and raw video evidence consumes it quickly.
+        """
+        import shutil
+        from datetime import datetime, timezone, timedelta
+        
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        deleted = 0
+        
+        # Traverse YYYY/MM/DD structure
+        if not self.root.exists():
+            return 0
+            
+        for year_dir in self.root.iterdir():
+            if not year_dir.is_dir() or not year_dir.name.isdigit():
+                continue
+            for month_dir in year_dir.iterdir():
+                if not month_dir.is_dir() or not month_dir.name.isdigit():
+                    continue
+                for day_dir in month_dir.iterdir():
+                    if not day_dir.is_dir() or not day_dir.name.isdigit():
+                        continue
+                        
+                    try:
+                        dir_date = datetime(
+                            int(year_dir.name),
+                            int(month_dir.name),
+                            int(day_dir.name),
+                            tzinfo=timezone.utc
+                        )
+                    except ValueError:
+                        continue
+                        
+                    if dir_date < cutoff:
+                        shutil.rmtree(day_dir, ignore_errors=True)
+                        deleted += 1
+                        
+                # Cleanup empty month/year dirs
+                if not any(month_dir.iterdir()):
+                    month_dir.rmdir()
+            if not any(year_dir.iterdir()):
+                year_dir.rmdir()
+                
+        return deleted
 
     def write_clip(self, camera_id: str, event_id: str, when: datetime,
                    frames: list[tuple[float, bytes]], fps: float) -> tuple[Path | None, str, float, int]:

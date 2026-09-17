@@ -157,6 +157,8 @@ class SimulatedCamera(VideoSource):
         self.fence_distance_m = fence_distance_m
 
         self._rng = np.random.default_rng(seed)
+        import random
+        random.seed(seed)
         self._seed = seed
         self._frame_index = 0
         self._t0 = datetime.now(timezone.utc)

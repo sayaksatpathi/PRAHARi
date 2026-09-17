@@ -47,6 +47,8 @@ BASE_WEIGHT: dict[EventType, float] = {
     EventType.TEMPORAL_ANOMALY: 0.30,
     EventType.REPEAT_ENTITY: 0.38,
     EventType.CORRIDOR_DROPOUT: 0.44,
+    EventType.NIGHT_MOVEMENT: 0.50,
+    EventType.SUSPICIOUS_ACTIVITY: 0.60,
     EventType.CAMERA_TAMPER: 0.78,
     EventType.CAMERA_OFFLINE: 0.34,
     EventType.STREAM_REPLAY_SUSPECTED: 0.82,

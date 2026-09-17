@@ -1,0 +1,46 @@
+# PRAHARI - Declarative Camera & Zone Configuration
+# Use this file to define your deployment topology before first run.
+#
+# A script (e.g., `scripts/load_config.py`) could parse this file to
+# populate the local SQLite edge database with cameras and zones.
+
+cameras:
+  - id: "CAM-01-GATE"
+    name: "North Gate Entrance"
+    source: "rtsp://admin:password@10.0.0.51:554/stream1"
+    fps: 12
+    fov_deg: 45
+    camera_height_m: 4.5
+    tilt_deg: 15
+    capabilities:
+      anpr_enabled: true
+      night_mode: true
+      thermal: false
+
+  - id: "CAM-02-PERIMETER"
+    name: "Eastern Fence Line"
+    source: "rtsp://admin:password@10.0.0.52:554/stream1"
+    fps: 10
+    fov_deg: 70
+    camera_height_m: 3.0
+    tilt_deg: 5
+    capabilities:
+      anpr_enabled: false
+      night_mode: true
+      thermal: true
+
+zones:
+  - id: "ZONE-NORTH-01"
+    name: "Gate Approach"
+    camera_id: "CAM-01-GATE"
+    polygon: [[100, 200], [500, 200], [500, 600], [100, 600]]
+    type: "intrusion"
+    severity: "high"
+
+patrols:
+  - id: "PATROL-ROUTE-A"
+    name: "Morning Perimeter Walk"
+    schedule: "06:00-07:00"
+    path:
+      - camera_id: "CAM-02-PERIMETER"
+        direction: "left_to_right"

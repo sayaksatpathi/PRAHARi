@@ -73,6 +73,20 @@ def build_detector(settings: Settings) -> Detector:
             )
             return SyntheticDetector(seed=settings.demo_seed,
                                      confidence_floor=settings.detection_confidence)
+        
+        # Model integrity check
+        manifest_path = model_path.parent / "manifest.json"
+        if manifest_path.exists():
+            import json
+            import hashlib
+            with manifest_path.open() as f:
+                manifest = json.load(f)
+            expected_hash = manifest.get(model_path.name)
+            if expected_hash:
+                actual_hash = hashlib.sha256(model_path.read_bytes()).hexdigest()
+                if actual_hash != expected_hash:
+                    raise ValueError(f"Model integrity failed: {model_path.name} hash mismatch.")
+        
         try:
             from prahari.edge.detect.onnx_yolo import OnnxYoloDetector
 

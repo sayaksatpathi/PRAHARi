@@ -131,6 +131,8 @@ class EventType(str, enum.Enum):
     TEMPORAL_ANOMALY = "temporal_anomaly"          # traffic at an unusual hour
     REPEAT_ENTITY = "repeat_entity"                # same plate, many odd crossings
     CORRIDOR_DROPOUT = "corridor_dropout"          # entered corridor, never exited
+    NIGHT_MOVEMENT = "night_movement"
+    SUSPICIOUS_ACTIVITY = "suspicious_activity"
     # --- sensor integrity ---
     CAMERA_TAMPER = "camera_tamper"
     CAMERA_OFFLINE = "camera_offline"
@@ -710,7 +712,20 @@ class PatrolAssessment(BaseModel):
     def matched(self) -> bool:
         return self.decision is not PatrolDecision.NOT_MATCHED
 
+class IncidentStatus(str, enum.Enum):
+    OPEN = "open"
+    RESOLVED = "resolved"
+    FALSE_ALARM = "false_alarm"
 
+class Incident(BaseModel):
+    incident_id: str
+    node_id: str
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
+    status: IncidentStatus = IncidentStatus.OPEN
+    event_ids: list[str] = Field(default_factory=list)
+    summary: str = ""
+    notes: str = ""
 class SystemStatus(BaseModel):
     node_id: str
     node_name: str

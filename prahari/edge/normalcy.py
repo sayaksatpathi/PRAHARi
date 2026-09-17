@@ -119,9 +119,24 @@ class NormalcyModel:
             )
 
         average_bucket = total / HOURS_PER_WEEK
+        
+        # Current rate check
+        from datetime import timedelta
+        ten_mins_ago = when - timedelta(minutes=10)
+        recent_count = self.db.recent_event_count(camera_id, zone_id or "", object_class.value, ten_mins_ago)
+        
+        # Expected in 10 minutes based on historical average
+        expected_recent = max(bucket, average_bucket) / 6.0
+        
+        rate_ratio = 1.0
+        if expected_recent > 0 and recent_count > expected_recent * 2 and recent_count >= 3:
+            rate_ratio = recent_count / expected_recent
+
         # The +0.5 floor keeps a never-before-seen bucket from producing an
         # infinite ratio on the strength of a single observation.
-        ratio = average_bucket / max(bucket, 0.5)
+        historical_ratio = average_bucket / max(bucket, 0.5)
+        
+        ratio = historical_ratio * max(1.0, math.sqrt(rate_ratio))
 
         day = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][how // 24]
         hour = how % 24
@@ -130,6 +145,9 @@ class NormalcyModel:
             f"{object_class.value} observations against a {average_bucket:.1f} "
             f"hourly average ({total:.0f} learnt in total)"
         )
+        if rate_ratio > 1.0:
+            detail += f" (Current rate anomalous: {recent_count} in last 10m vs {expected_recent:.1f} expected)"
+
         return NormalcyVerdict(
             ratio=round(float(ratio), 2),
             samples=int(total),

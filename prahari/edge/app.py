@@ -78,7 +78,7 @@ class NodeRuntime:
 
     def __init__(self) -> None:
         self.settings = get_settings()
-        self.db = Database(self.settings.db_path)
+        self.db = Database(self.settings.db_path, secret_key=self.settings.secret_key)
         self.bus = get_bus()
         self.evidence = EvidenceStore(self.settings.evidence_dir)
         self.ledger = EvidenceLedger(self.db)
@@ -86,6 +86,7 @@ class NodeRuntime:
         self.users = UserStore(self.db)
         self.sync = SyncManager(
             self.db, self.settings.core_url, self.settings.node_id,
+            core_token=self.settings.core_token,
             retry_seconds=self.settings.sync_retry_seconds,
             batch_size=self.settings.sync_batch_size,
             queue_max_bytes=self.settings.queue_max_bytes,
@@ -140,6 +141,37 @@ class NodeRuntime:
             # an operator entered are never touched.
             seed_demo_patrols(self.patrol_roster, self.settings.node_id)
 
+        # Hydrate persistent state
+        handoffs = self.db.get_node_state("recent_handoffs")
+        if handoffs:
+            self.recent_handoffs.extend(handoffs.get("handoffs", []))
+
+        from prahari.edge.crosscam.coordinator import Entity
+        for gid, data in self.db.list_global_entities().items():
+            try:
+                self.coordinator._entities[int(gid)] = Entity.from_dict(data)
+                # Keep the id counter above any loaded IDs
+                while next(self.coordinator._ids) <= int(gid):
+                    pass
+            except Exception:
+                log.exception("failed to load global entity %s", gid)
+
+        from prahari.edge.anpr import PlateSighting
+        for plate, data in self.db.list_plates().items():
+            try:
+                sightings = [
+                    PlateSighting(
+                        plate=s["plate"],
+                        camera_id=s["camera_id"],
+                        at=datetime.fromisoformat(s["at"]),
+                        confidence=s["confidence"]
+                    )
+                    for s in data.get("sightings", [])
+                ]
+                self.repeat_plates.sightings[plate] = sightings
+            except Exception:
+                log.exception("failed to load plate %s", plate)
+
         self.detector = build_detector(self.settings)
         log.info("detector backend: %s", self.detector.describe())
 
@@ -184,30 +216,64 @@ class NodeRuntime:
         return self._plate_readers[key]
 
     async def add_pipeline(self, camera: Camera) -> None:
-        try:
-            source = build_source(camera, self.settings)
-        except Exception:
-            log.exception("could not build source for %s", camera.camera_id)
+        if camera.camera_id in getattr(self, "_supervisors", {}):
             return
-        warn_if_detector_cannot_see(self.detector, camera, source)
-        pipeline = CameraPipeline(
-            camera=camera, source=source, detector=self.detector,
-            db=self.db, bus=self.bus, settings=self.settings,
-            evidence_store=self.evidence, ledger=self.ledger,
-            normalcy=self.normalcy, meter=self.sync.meter,
-            governor=self.governor,
-            plate_reader_factory=self._plate_reader_for,
-            on_plate_read=self._record_plate_read,
-            segmenter=self.segmenter,
-            repeat_plates=self.repeat_plates,
-            coordinator=self.coordinator,
-            on_handoff=self._on_handoff,
-            patrol_matcher=self.patrol,
-        )
-        self.pipelines[camera.camera_id] = pipeline
-        await pipeline.start()
+            
+        if not hasattr(self, "_supervisors"):
+            self._supervisors = {}
+            
+        task = asyncio.create_task(self._pipeline_supervisor(camera), name=f"supervisor-{camera.camera_id}")
+        self._supervisors[camera.camera_id] = task
+
+    async def _pipeline_supervisor(self, camera: Camera) -> None:
+        backoff = 2.0
+        while True:
+            pipeline = None
+            try:
+                source = build_source(camera, self.settings)
+                warn_if_detector_cannot_see(self.detector, camera, source)
+                pipeline = CameraPipeline(
+                    camera=camera, source=source, detector=self.detector,
+                    db=self.db, bus=self.bus, settings=self.settings,
+                    evidence_store=self.evidence, ledger=self.ledger,
+                    normalcy=self.normalcy, meter=self.sync.meter,
+                    governor=self.governor,
+                    plate_reader_factory=self._plate_reader_for,
+                    on_plate_read=self._record_plate_read,
+                    segmenter=self.segmenter,
+                    repeat_plates=self.repeat_plates,
+                    coordinator=self.coordinator,
+                    on_handoff=self._on_handoff,
+                    patrol_matcher=self.patrol,
+                )
+                self.pipelines[camera.camera_id] = pipeline
+                await pipeline.start()
+                
+                if getattr(pipeline, "_task", None):
+                    backoff = 2.0
+                    await pipeline._task
+            except asyncio.CancelledError:
+                if pipeline:
+                    await pipeline.stop()
+                raise
+            except Exception:
+                log.exception("supervisor caught error for %s", camera.camera_id)
+            finally:
+                if pipeline:
+                    await pipeline.stop()
+                    self.pipelines.pop(camera.camera_id, None)
+            
+            await asyncio.sleep(backoff)
+            backoff = min(300.0, backoff * 1.5)
 
     async def remove_pipeline(self, camera_id: str) -> None:
+        if hasattr(self, "_supervisors") and camera_id in self._supervisors:
+            task = self._supervisors.pop(camera_id)
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
         pipeline = self.pipelines.pop(camera_id, None)
         if pipeline:
             await pipeline.stop()
@@ -233,14 +299,45 @@ class NodeRuntime:
             {"handoff": finding})
 
     async def _crosscam_loop(self) -> None:
-        """Periodic corridor reasoning: raise dropout events."""
+        """Periodic corridor reasoning: raise dropout events and persist state."""
+        tick_count = 0
+        last_decay = self.db.get_node_state("last_decay")
+        last_decay_time = datetime.fromisoformat(last_decay["time"]) if last_decay else datetime.now(timezone.utc)
+
         while True:
             try:
                 await asyncio.sleep(5.0)
-                findings = self.coordinator.tick(datetime.now(timezone.utc))
+                tick_count += 1
+                now_dt = datetime.now(timezone.utc)
+                
+                # Daily tasks (Normalcy decay and Evidence pruning)
+                days_elapsed = (now_dt - last_decay_time).total_seconds() / 86400.0
+                if days_elapsed >= 1.0:
+                    self.normalcy.decay(days_elapsed)
+                    deleted = self.evidence.prune(self.settings.evidence_retention_days)
+                    if deleted > 0:
+                        log.info("retention scheduler pruned %d old evidence days", deleted)
+                    last_decay_time = now_dt
+                    self.db.set_node_state("last_decay", {"time": now_dt.isoformat()})
+
+                findings = self.coordinator.tick(now_dt)
                 for f in findings:
                     if f.get("kind") == "corridor_dropout":
                         await self._emit_crosscam_event(f)
+                
+                # Persist state every 15 seconds (3 ticks)
+                if tick_count % 3 == 0:
+                    self.db.set_node_state("recent_handoffs", {"handoffs": list(self.recent_handoffs)})
+                    for gid, ent in self.coordinator._entities.items():
+                        self.db.upsert_global_entity(str(gid), ent.as_dict())
+                    for plate, sightings in self.repeat_plates.sightings.items():
+                        self.db.upsert_plate_sighting(plate, {
+                            "sightings": [
+                                {"plate": s.plate, "camera_id": s.camera_id,
+                                 "at": s.at.isoformat(), "confidence": s.confidence}
+                                for s in sightings
+                            ]
+                        })
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -334,9 +431,14 @@ app = FastAPI(
 # Auth plumbing
 # =====================================================================
 
-async def current_principal(authorization: str = Header(default="")) -> Principal:
-    token = authorization.removeprefix("Bearer ").strip()
-    principal = verify_token(token, runtime.settings.secret_key) if token else None
+async def current_principal(
+    authorization: str = Header(default=""),
+    token: str | None = None
+) -> Principal:
+    tok = authorization.removeprefix("Bearer ").strip()
+    if not tok and token:
+        tok = token
+    principal = verify_token(tok, runtime.settings.secret_key) if tok else None
     if principal is None:
         raise HTTPException(status_code=401, detail="authentication required")
     return principal
@@ -643,8 +745,68 @@ async def get_event(event_id: str, principal: Principal = Depends(current_princi
     return event.model_dump(mode="json")
 
 
+@app.get("/api/events/{event_id}/export", tags=["events"])
+async def export_evidence(
+    event_id: str,
+    principal: Principal = Depends(require("admin"))
+):
+    """Export a verifiable, tamper-evident bundle for this event."""
+    event = runtime.db.get_event(event_id)
+    if not event or not event.evidence:
+        raise HTTPException(404, "Event or evidence missing")
+    
+    import zipfile
+    import io
+    import json
+    
+    # In a real app this creates a zip asynchronously or streams it,
+    # but for Prahari edge node this simple in-memory zip suffices for the demo.
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        # Add event metadata
+        zf.writestr("event.json", json.dumps(event.as_dict(), indent=2))
+        
+        # Add evidence metadata (which has the hashes of the clips/frames)
+        d = runtime.evidence._dir_for(event.camera_id, event_id, event.timestamp)
+        meta_path = d / "meta.json"
+        if meta_path.exists():
+            zf.write(meta_path, arcname="manifest.json")
+            
+        # Add actual media files
+        if event.evidence.trigger_frame:
+            p = d / "frame.jpg"
+            if p.exists(): zf.write(p, arcname="frame.jpg")
+            
+        if event.evidence.clip_path:
+            p = d / "clip.mp4"
+            if p.exists(): zf.write(p, arcname="clip.mp4")
+            
+        if getattr(event.evidence, "mask_path", None):
+            p = d / "mask.png"
+            if p.exists(): zf.write(p, arcname="mask.png")
+            
+        # Add ledger/provenance context
+        # In a real chain, we'd include the predecessor hashes and node signatures.
+        provenance = {
+            "node_id": runtime.settings.node_id,
+            "exported_by": principal.username,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        zf.writestr("provenance.json", json.dumps(provenance, indent=2))
+        
+    buf.seek(0)
+    from fastapi.responses import StreamingResponse
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename=evidence_{event_id}.zip"}
+    )
+
 @app.get("/api/events/{event_id}/evidence/{kind}", tags=["events"])
-async def get_evidence(event_id: str, kind: str):
+async def get_evidence(
+    event_id: str, kind: str,
+    principal: Principal = Depends(current_principal)
+):
     event = runtime.db.get_event(event_id)
     if event is None or event.evidence is None:
         raise HTTPException(status_code=404, detail="no evidence for this event")
@@ -661,6 +823,10 @@ async def get_evidence(event_id: str, kind: str):
                        else "")),
         )
     path = Path(path_str)
+    try:
+        path.resolve().relative_to(runtime.settings.evidence_dir.resolve())
+    except ValueError:
+        raise HTTPException(status_code=403, detail="invalid evidence path")
     if not path.exists():
         raise HTTPException(status_code=410, detail="evidence file is no longer on disk")
     media = "video/mp4" if kind == "clip" else "image/jpeg"
@@ -1009,7 +1175,11 @@ async def demo_action(req: DemoAction, principal: Principal = Depends(require("o
 # =====================================================================
 
 @app.websocket("/ws")
-async def websocket_feed(ws: WebSocket):
+async def websocket_feed(ws: WebSocket, token: str | None = None):
+    principal = verify_token(token, runtime.settings.secret_key) if token else None
+    if principal is None:
+        await ws.close(code=1008, reason="Authentication required")
+        return
     await ws.accept()
     queue = runtime.bus.queue(f"prahari.{runtime.settings.node_id}.*", maxsize=128)
     status_task: asyncio.Task | None = None
@@ -1066,10 +1236,16 @@ def main() -> None:
     import uvicorn
 
     settings = get_settings()
+    kwargs = {}
+    if settings.ssl_certfile and settings.ssl_keyfile:
+        kwargs["ssl_certfile"] = str(settings.ssl_certfile)
+        kwargs["ssl_keyfile"] = str(settings.ssl_keyfile)
+
     uvicorn.run(
         "prahari.edge.app:app",
         host=settings.host, port=settings.port,
         reload=False, log_level="info",
+        **kwargs
     )
 
 
