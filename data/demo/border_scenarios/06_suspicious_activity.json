@@ -1,0 +1,12 @@
+{
+  "scenario": "SUSPICIOUS_ACTIVITY",
+  "expected_alert": true,
+  "expected_event_types": [
+    "group_movement",
+    "suspicious_activity",
+    "loitering"
+  ],
+  "camera": "CAM-014",
+  "source": "SIMULATED (Prahari deterministic simulator)",
+  "notes": "Group aggregation / abnormal pattern."
+}

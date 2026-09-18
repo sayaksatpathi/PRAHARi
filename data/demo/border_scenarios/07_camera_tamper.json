@@ -1,0 +1,10 @@
+{
+  "scenario": "CAMERA_TAMPER",
+  "expected_alert": true,
+  "expected_event_types": [
+    "camera_tamper"
+  ],
+  "camera": "CAM-014",
+  "source": "SIMULATED (Prahari deterministic simulator)",
+  "notes": "Lens physically covered; integrity monitor must flag it."
+}

@@ -1,0 +1,12 @@
+{
+  "scenario": "NIGHT_MOVEMENT",
+  "expected_alert": true,
+  "expected_event_types": [
+    "night_movement",
+    "off_route_movement",
+    "suspicious_activity"
+  ],
+  "camera": "CAM-022",
+  "source": "SIMULATED (Prahari deterministic simulator)",
+  "notes": "Movement during low-light hours on the IR approach camera."
+}

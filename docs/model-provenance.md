@@ -42,5 +42,26 @@ This document tracks the provenance, licensing, and expected deployment characte
 - **Intended Use**: Text extraction from bounded plates.
 - **Modification State**: Integrated with temporal aggregation to suppress single-frame hallucinations.
 
+## 6. Face Detection — SCRFD-500M (CANDIDATE) + Haar (baseline)
+- **Role**: Face detection component. The OpenCV Haar frontal-face cascade
+  (`prahari/edge/detect/face.py`, ships with opencv-python, no external weights)
+  remains the **unchanged baseline**. SCRFD-500M is added as a separate ONNX
+  backend (`prahari/edge/detect/scrfd.py`) behind the same interface and is
+  classified **CANDIDATE** — not promoted.
+- **Model filename**: `models/scrfd_500m.onnx` (2.30 MB, not committed — gitignored).
+- **Source URL / repository**: `https://huggingface.co/RuteNL/SCRFD-face-detection-ONNX` (file `500m.onnx`); upstream architecture/weights: InsightFace SCRFD (https://github.com/deepinsight/insightface, `detection/scrfd`).
+- **Checksum (SHA-256)**: `72ce8732254ed6678d78e8a8c4b8bf2d4258128afe714edec877eaa90f7b7958` (verified on download 2026-09-18).
+- **License**: InsightFace **code** is MIT. InsightFace **pretrained models are stated for non-commercial / research use only** — this is the binding restriction for the weights.
+- **Provenance / restrictions**: community ONNX re-export of the official InsightFace SCRFD-500M. Treat as **research/evaluation only** until weights with clear commercial terms are obtained or the model is retrained on a commercially clear dataset. Same class of restriction as the Re-ID weights.
+- **Input size & preprocessing**: fixed **640×640**; letterbox resize preserving aspect ratio into a 640×640 zero-padded canvas; blob = `(pixel − 127.5)/128`, **BGR→RGB**, NCHW; boxes decoded via distance-to-bbox at strides 8/16/32 (2 anchors/cell), NMS IoU 0.4, then rescaled by the letterbox factor to original coordinates.
+- **Inference provider**: ONNX Runtime, **CUDA if available else CPU** (auto). No training framework added.
+- **Measured (WIDER FACE val, VOC AP@0.5)**: see [benchmark-matrix.md](benchmark-matrix.md) — recorded from an actual run, not asserted here.
+- **Status**: **CANDIDATE — not promoted.** The Haar cascade remains the production/default face detector. SCRFD is enabled only for controlled evaluation/demo via `build_face_detector("scrfd")` (`prahari/edge/detect/face.py`); nothing in the default pipeline path selects it.
+- **Promotion gate (must all hold before SCRFD becomes the default):**
+  1. **Weight licensing resolved.** The InsightFace pretrained weights are non-commercial/research-only. Promotion requires either (a) procurement/clearance of these weights for the intended deployment, or (b) retraining/replacing the weights with a commercially clear source.
+  2. **Re-validate on any source change.** If the model file, weights, or export source changes, re-run `scripts/evaluate_widerface.py --detector scrfd` on the WIDER FACE val split and update the benchmark matrix before promoting.
+  3. **No GPU claim without measurement.** ORT CUDA EP did not load in the current environment (cuDNN 9.x missing); a GPU latency/FPS figure may only be stated after an actual CUDA-provider run.
+  > Until all three hold, promoting the research-only weights into the release default would be premature. For the SIH demo, present SCRFD as an *experimental candidate* alongside the measured Haar-vs-SCRFD comparison.
+
 ## Summary of Risk
-The AI stack is built almost entirely on **Apache 2.0** and **MIT** licensed architectures, making it highly suitable for enterprise and government deployment without GPL/copyleft risks. The only area requiring compliance review is the Re-ID weights (Market-1501 dataset terms).
+The AI stack is built almost entirely on **Apache 2.0** and **MIT** licensed architectures, making it highly suitable for enterprise and government deployment without GPL/copyleft risks. The areas requiring compliance review are the Re-ID weights (Market-1501 dataset terms) and the **SCRFD-500M weights (InsightFace non-commercial/research-only model terms)** — the SCRFD architecture/code is MIT, but its pretrained weights are not cleared for commercial use.

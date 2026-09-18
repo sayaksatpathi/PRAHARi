@@ -1,0 +1,12 @@
+{
+  "scenario": "NETWORK_OUTAGE",
+  "expected_alert": true,
+  "expected_event_types": [
+    "line_crossing",
+    "zone_intrusion",
+    "off_route_movement"
+  ],
+  "camera": "CAM-014",
+  "source": "SIMULATED (Prahari deterministic simulator)",
+  "notes": "Intrusion during uplink loss: evidence queued locally, hash chain intact on reconnect."
+}

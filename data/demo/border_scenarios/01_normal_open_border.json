@@ -1,0 +1,8 @@
+{
+  "scenario": "NORMAL_OPEN_BORDER",
+  "expected_alert": false,
+  "expected_event_types": [],
+  "camera": "CAM-022",
+  "source": "SIMULATED (Prahari deterministic simulator)",
+  "notes": "Lawful pedestrian/vehicle movement on an open border. Must NOT alarm."
+}

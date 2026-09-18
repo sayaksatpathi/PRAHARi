@@ -41,3 +41,19 @@ class FaceDetector:
             "enabled": self.cascade is not None,
             "type": "face_detector"
         }
+
+
+def build_face_detector(backend: str = "haar", **kwargs):
+    """Return a face detector by backend name, behind one interface.
+
+    Both backends expose ``detect(image) -> [(x, y, w, h)]`` and ``describe()``.
+    Additive helper — the Haar ``FaceDetector`` above is the unchanged default
+    baseline; ``"scrfd"`` selects the ONNX SCRFD-500M backend.
+    """
+    backend = (backend or "haar").lower()
+    if backend in ("haar", "haarcascade", "opencv"):
+        return FaceDetector()
+    if backend in ("scrfd", "scrfd_500m", "onnx"):
+        from prahari.edge.detect.scrfd import ScrfdFaceDetector
+        return ScrfdFaceDetector(**kwargs)
+    raise ValueError(f"unknown face-detector backend: {backend!r}")

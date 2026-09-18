@@ -1,0 +1,8 @@
+{
+  "scenario": "PATROL_MATCHED",
+  "expected_alert": false,
+  "expected_event_types": [],
+  "camera": "CAM-014",
+  "source": "SIMULATED (Prahari deterministic simulator)",
+  "notes": "Own patrol on assigned route/window: recorded but suppressed."
+}

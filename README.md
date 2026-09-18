@@ -418,6 +418,54 @@ prahari/
 └── models/            ONNX models (not committed)
 ```
 
+## For evaluators (SIH)
+
+Five questions, five pointers:
+
+1. **What problem does Prahari solve?** — top of this README.
+2. **Why can it work with existing CCTV?** — camera-capability profiling above and
+   [docs/camera-profiling.md](docs/camera-profiling.md).
+3. **What happens when connectivity fails?** — [docs/offline-mode.md](docs/offline-mode.md),
+   [docs/recovery-validation.md](docs/recovery-validation.md).
+4. **What evidence does an alert produce?** — clip + frame + metadata + hash chain;
+   verify with `scripts/verify_evidence.py`.
+5. **How was the system actually evaluated?** — [docs/benchmark-matrix.md](docs/benchmark-matrix.md)
+   (measured vs pending, no fabricated numbers) and [docs/evaluation.md](docs/evaluation.md).
+
+The demo walkthrough, capture specs and pre-flight checklist live in
+[presentation/](presentation/). Dataset strategy, provenance and licenses are in
+[docs/data-strategy.md](docs/data-strategy.md), [data/README.md](data/README.md)
+and [DATA_LICENSES.md](DATA_LICENSES.md).
+
+## SIH 2026 Evidence
+
+A judge can understand Prahari from these pointers without reading the code.
+**Classification: SIH DEMO READY / EVIDENCE FROZEN — not production-field validated.**
+
+- **Problem** — extract intelligence from *existing* border CCTV, edge-first,
+  evidence-backed, resilient to uplink loss (top of this README).
+- **Architecture** — [docs/architecture.md](docs/architecture.md): CCTV → profiling
+  → detection/tracking → normalcy/patrol rules → alert governor → evidence + hash chain.
+- **Demo** — 5–7 min walkthrough: [presentation/demo/demo-script.md](presentation/demo/demo-script.md),
+  checklist [presentation/demo/demo-checklist.md](presentation/demo/demo-checklist.md).
+- **Measured benchmarks** — [docs/benchmark-matrix.md](docs/benchmark-matrix.md),
+  judge sheet [presentation/judge-evidence.md](presentation/judge-evidence.md)
+  (Re-ID Rank-1 0.715/mAP 0.4925 · face Haar 0.121 vs SCRFD candidate 0.489 ·
+  border 7/7 · normalcy 34→0).
+- **Security** — [docs/security-validation.md](docs/security-validation.md)
+  (Fernet-encrypted camera credentials, auth).
+- **Evidence integrity** — append-only SHA-256 hash chain; `scripts/verify_evidence.py`.
+- **Offline operation** — [docs/offline-mode.md](docs/offline-mode.md),
+  [docs/recovery-validation.md](docs/recovery-validation.md) (store-and-forward, integrity on reconnect).
+- **Known limitations** — [docs/limitations.md](docs/limitations.md) + the freeze audit:
+  SIMULATED ≠ field validated · SCRFD = candidate (research-only weights) · ONVIF UNVALIDATED ·
+  WIDER FACE test GT withheld · no SCRFD GPU benchmark · Street Scene NOT DOWNLOADED ·
+  seeded normalcy ≠ long-term baseline.
+- **Reproducibility** — every figure regenerates: `scripts/evaluate*.py`,
+  `scripts/evaluate_widerface.py`, `scripts/border_scenarios.py`,
+  `scripts/validate_normalcy.py`, `scripts/test_real_clips.py`.
+- **Full freeze audit** — [docs/final-sih-release-readiness.md](docs/final-sih-release-readiness.md).
+
 ## Licence and attribution
 
 See `LICENCE`. Third-party components are listed in `docs/attribution.md` with

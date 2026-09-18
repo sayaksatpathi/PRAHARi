@@ -26,3 +26,26 @@ auto.key
 
 # Datasets are fetched, never committed (scripts/fetch_*.py reproduce them).
 datasets/
+
+# Large dataset payloads live under data/ but are never committed. Only the
+# folder READMEs, provenance and provision scripts are tracked; the imagery,
+# video, weights and archives are reproduced via scripts/provision_datasets.ps1.
+data/training/**
+data/testing/**
+data/demo/**
+!data/**/README.md
+!data/**/.gitkeep
+# Track the tiny border-scenario ground-truth JSONs (deliverables); the rendered
+# .mp4 clips stay ignored via the *.mp4 rule below.
+!data/demo/border_scenarios/
+!data/demo/border_scenarios/*.json
+*.zip
+*.onnx
+*.pt
+*.pth
+*.tar
+*.tar.gz
+
+# Binary presentation deliverables (regenerated; delivered out-of-band, not committed)
+*.pptx
+*.pdf

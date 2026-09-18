@@ -1,0 +1,18 @@
+{
+  "backbone": "resnet18",
+  "embedding_dim": 128,
+  "crop": [
+    64,
+    128
+  ],
+  "epochs": 25,
+  "train_identities": 686,
+  "val_identities": 50,
+  "parameters_m": 11.33,
+  "size_mb": 45.0,
+  "trained_on": "MOT17 train, ground-truth boxes",
+  "device": "cuda",
+  "peak_vram_mb": 428,
+  "train_minutes": 8.3,
+  "limitation": "Daylight pedestrian imagery only. Improves matching between cameras of similar modality; does not address visible-to-thermal re-identification."
+}
