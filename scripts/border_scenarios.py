@@ -125,9 +125,70 @@ def _build_zones(camera, source):
     return []
 
 
-def render_clip(camera, settings, inject_kind, inject_at, out_mp4, tamper_mode=None):
+_HUD_OUTCOME = {   # label -> (after_text, after_colour BGR)
+    "NORMAL_OPEN_BORDER": ("NORMAL - MONITORING (no alert)", (120, 190, 120)),
+    "PATROL_MATCHED": ("PATROL MATCHED - SUPPRESSED", (120, 190, 120)),
+    "PATROL_DEVIATION": ("PATROL DEVIATION - ESCALATED", (40, 170, 235)),
+    "OFF_ROUTE_MOVEMENT": ("ALERT: OFF-ROUTE INTRUSION", (60, 60, 235)),
+    "NIGHT_MOVEMENT": ("ALERT: NIGHT MOVEMENT", (60, 60, 235)),
+    "SUSPICIOUS_ACTIVITY": ("ALERT: SUSPICIOUS / GROUP", (60, 60, 235)),
+    "CAMERA_TAMPER": ("INTEGRITY: CAMERA TAMPER", (60, 60, 235)),
+    "NETWORK_OUTAGE": ("OUTAGE: EVIDENCE QUEUED LOCALLY", (40, 170, 235)),
+}
+
+
+def hud_for(scn):
+    after, col = _HUD_OUTCOME.get(scn["label"], ("EVENT", (60, 60, 235)))
+    return {"label": scn["label"], "camera": scn["camera"],
+            "before": "MONITORING", "after": after, "after_col": col}
+
+
+_BOX_COLOUR = {          # BGR, by ground-truth actor label
+    "intruder": (60, 60, 235), "patrol": (235, 160, 40),
+    "ambient": (150, 150, 150), "loiterer": (60, 60, 235), "group": (60, 60, 235),
+}
+
+
+def _draw_boxes(img, ground_truth):
+    for e in ground_truth or []:
+        b = e.get("bbox")
+        if not b:
+            continue
+        lbl = e.get("label", "ambient")
+        c = _BOX_COLOUR.get(lbl, (150, 150, 150))
+        x1, y1, x2, y2 = (int(v) for v in b)
+        cv2.rectangle(img, (x1, y1), (x2, y2), c, 2)
+        cv2.putText(img, lbl, (x1, max(11, y1 - 4)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.42, c, 1, cv2.LINE_AA)
+
+
+def _draw_hud(img, hud, active, fi, fps):
+    """Burned-in banner so a clip self-explains without narration."""
+    h, w = img.shape[:2]
+    ov = img[0:38].copy()
+    cv2.rectangle(ov, (0, 0), (w, 38), (20, 20, 20), -1)
+    cv2.addWeighted(ov, 0.6, img[0:38], 0.4, 0, img[0:38])
+    cv2.putText(img, "PRAHARI  -  " + hud["label"], (10, 25),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (235, 235, 235), 1, cv2.LINE_AA)
+    cv2.putText(img, hud["camera"], (w - 120, 25),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (180, 180, 180), 1, cv2.LINE_AA)
+    txt = hud["after"] if active else hud["before"]
+    col = hud["after_col"] if active else (120, 190, 120)
+    (tw, _), _ = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, 0.62, 2)
+    cv2.rectangle(img, (10, h - 46), (10 + tw + 24, h - 12), col, -1)
+    cv2.putText(img, txt, (22, h - 22), cv2.FONT_HERSHEY_SIMPLEX, 0.62,
+                (15, 15, 15), 2, cv2.LINE_AA)
+    cv2.putText(img, "SIMULATED / DEMO", (w - 220, h - 18),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (90, 90, 200), 1, cv2.LINE_AA)
+    cv2.putText(img, "t=%4.1fs" % (fi / max(fps, 1)), (w - 118, 55),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (180, 180, 180), 1, cv2.LINE_AA)
+
+
+def render_clip(camera, settings, inject_kind, inject_at, out_mp4, tamper_mode=None, hud=None):
     """Deterministic render pass: same seed => same frames as the metric run.
 
+    When `hud` is given, actor boxes + a self-explaining banner/verdict are burned
+    in, so 'normal' and 'night' (same camera) are no longer visually identical.
     Returns (frames_written, tamper_verdict_or_None, sample_jpeg_bytes)."""
     source = build_source(camera, settings)
     if not source.open():
@@ -161,6 +222,9 @@ def render_clip(camera, settings, inject_kind, inject_at, out_mp4, tamper_mode=N
                 h, w = img.shape[:2]
                 writer = cv2.VideoWriter(
                     str(out_mp4), cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
+            if hud is not None:
+                _draw_boxes(img, getattr(frame, "ground_truth", None))
+                _draw_hud(img, hud, active=(fi >= inject_at), fi=fi, fps=fps)
             writer.write(img)
             written += 1
             if sample_jpeg is None:
@@ -270,7 +334,7 @@ def main():
         if scn["kind"] in ("incident", "outage"):
             result, raw_types, ev, inject_at = run_incident(scn, settings)
             frames, _, sample_jpeg = render_clip(
-                _camera(scn["camera"]), settings, scn["inject"], inject_at, out_mp4)
+                _camera(scn["camera"]), settings, scn["inject"], inject_at, out_mp4, hud=hud_for(scn))
             exp = set(scn["expected_types"])
             got = set(raw_types)
             rec.update({
@@ -304,7 +368,7 @@ def main():
         elif scn["kind"] == "normal":
             result, raw_types, ev = run_normal(scn, settings)
             frames, _, sample_jpeg = render_clip(
-                _camera(scn["camera"]), settings, None, inject_at, out_mp4)
+                _camera(scn["camera"]), settings, None, inject_at, out_mp4, hud=hud_for(scn))
             rec.update({
                 "actual_alert": ev.alerted_events > 0,
                 "actual_event_types": dict(raw_types),
@@ -322,7 +386,7 @@ def main():
         elif scn["kind"] == "patrol":
             pr = patrol_results[scn["patrol_key"]]
             frames, _, sample_jpeg = render_clip(
-                _camera(scn["camera"]), settings, "intruder", inject_at, out_mp4)
+                _camera(scn["camera"]), settings, "intruder", inject_at, out_mp4, hud=hud_for(scn))
             decision = pr["actual_decision"]
             alerted = decision not in ("suppressed",)
             rec.update({
@@ -346,7 +410,7 @@ def main():
         elif scn["kind"] == "tamper":
             frames, verdict, sample_jpeg = render_clip(
                 _camera(scn["camera"]), settings, None, inject_at, out_mp4,
-                tamper_mode=scn["tamper_mode"])
+                tamper_mode=scn["tamper_mode"], hud=hud_for(scn))
             tampered = verdict is not None and verdict.tampered
             rec.update({
                 "actual_alert": tampered,
