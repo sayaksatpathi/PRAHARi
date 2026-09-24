@@ -4,7 +4,13 @@ A point-by-point record of what was fixed, what is partial, and what genuinely
 needs resources outside a coding session. Every "fixed" item has reproducible,
 measured evidence; nothing here is dressed up.
 
-## Summary: 8 fixed · 2 partial-fixed · 4 external-blocked · 4 roadmap
+## Summary: 9 fixed · 4 partial-advanced · 1 in-progress · 4 roadmap
+
+Update: #9 (ANPR) and #10 (ONVIF) moved from external-blocked to **partial-advanced**
+(validated on real Indian plates; real ONVIF client, contract-validated). #2 and
+#15 are partial with honest, confirmed limits (academic-data cap; one physical
+machine). #14 download is in progress (Zenodo-throttled). The four roadmap items
+(#1, #3, #13, #16) genuinely need field access, more data, or counsel.
 
 | # | Fault | Status | Evidence / next action |
 |---|-------|--------|------------------------|
@@ -17,11 +23,11 @@ measured evidence; nothing here is dressed up.
 | 12 | No GPU benchmark | ✅ **FIXED** | **108 fps** (9.3 ms) RTX 4050 measured |
 | 17 | Honesty backfires | ✅ **FIXED** | story-led pitch + this document |
 | 18 | Demo realism | ✅ **FIXED** | burned-in HUD/boxes/verdict pills — normal vs night now visually distinct |
-| 2 | Weak detection | 🟡 **PARTIAL** | real-time ✅ (108 fps); accuracy ❌ — trained yolov8s/yolov8m, none beat YOLOX-S 0.397 MOTA on academic data. Fixed a real YOLOv8-decode bug + built `eval_mot_tracking.py`. Real gain needs real data |
-| 15 | Single-node | 🟡 **PARTIAL** | `demo_multinode.py`: 2 edge nodes → 1 core, aggregation + per-node chain verify PASS on one host. True multi-machine still needs 2+ machines |
+| 2 | Weak detection | 🟡 **PARTIAL (accuracy cap confirmed)** | real-time ✅ (108 fps). Accuracy: **3 models tried** — YOLOX-S **0.397** (best) > yolov8m COCO 0.377 > yolov8s-MOT-finetune 0.331; yolov8l weights download failed. No model beats the baseline on the academic MOT17 subset, and tuning on the held-out set would be dishonest. The cap is **real data (#1)**, confirmed, not a coding gap. Genuine wins: fixed a real YOLOv8-decode bug + built `eval_mot_tracking.py` |
+| 15 | Single-node | 🟡 **PARTIAL (physical limit)** | `demo_multinode.py`: 2 edge nodes → 1 real core, aggregation + per-node chain verify PASS. True multi-**machine** needs ≥2 physical hosts — a hardware limit no code fixes; the distributed architecture (separate processes, HTTP sync, aggregation, per-node integrity) is demonstrated on one host |
 | 9 | ANPR Chinese plates | 🟡 **PARTIAL (now tested on Indian)** | Ran the real `fast-alpr` backend on **13 real Indian vehicle images** (`scripts/test_anpr_india.py`): **detection 12/13**; OCR reads Indian **state/district codes correctly** (KL55, MH15, KA, GJ) but misreads the plate **suffix** (e.g. GT `KL 55 R 2473` → `KL552247`). No longer Chinese-only. Full-string accuracy needs an **India-tuned OCR** model — the clear next step |
 | 10 | ONVIF unvalidated | 🟡 **PARTIAL (client implemented)** | Real ONVIF client on the **official ONVIF WSDL** (`prahari/edge/sources/onvif_client.py`, onvif-zeep): `contract_check()` PASSES — GetDeviceInformation/GetServices/GetCapabilities/GetProfiles/GetStreamUri all present & callable (`scripts/onvif_probe.py`). Onboarding by ONVIF (device info + RTSP URI) now coded, not just RTSP. Full device interop still needs a physical ONVIF camera — the probe runs against one with `--host` |
-| 14 | Street Scene not downloaded | 🔶 **EXTERNAL** | Disk blocker cleared on the SSD; the 49 GB pull is an overnight job. `curl -C -` the Zenodo archive, then benchmark the normalcy/anomaly path |
+| 14 | Street Scene not downloaded | 🔶 **IN PROGRESS** | Disk blocker cleared (SSD). Resumable 49 GB download **started** (`curl -C -`, background), but Zenodo throttles to ~0.2 MB/s → it's an overnight/multi-day pull, not completable in-session. Benchmark the normalcy/anomaly path once it lands. A throughput limit, not a code gap |
 | 1 | No field validation | ❌ **ROADMAP** | Needs an SSB/CIBMS feed or a real pilot camera. **The single most important next step; state it as the ask, don't fake it** |
 | 3 | Weak Re-ID | ❌ **ROADMAP** | Rank-1 0.705 vs ~0.95 SOTA; a retrain reached only 0.715. Real gain needs a large, ideally domain-matched Re-ID dataset |
 | 13 | Thermal Re-ID | ❌ **ROADMAP** | Needs a paired visible↔thermal dataset (none available here) |
