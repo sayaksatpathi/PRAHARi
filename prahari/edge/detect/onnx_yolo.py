@@ -280,13 +280,26 @@ class OnnxYoloDetector(Detector):
                     raw = self.session.run(
                         self.output_names,
                         {self.input_name: self._blob(canvas, scale_01, swap_rb)})[0]
+                    self._layout = None      # re-detect layout per convention
                     _, scores, _ = self._decode(np.asarray(raw))
                     top = float(scores.max()) if scores.size else 0.0
+                    n_conf = int((scores > 0.5).sum())
                 except Exception:
                     top = -1.0
-                results.append((top, scale_01, swap_rb))
-                if top > best[0]:
-                    best = (top, scale_01, swap_rb)
+                    n_conf = 0
+                # A wrong input scale can saturate the detection head into a
+                # *flood* of ~1.0 detections that beats the correct convention on
+                # max score alone (observed on YOLOv8: 5000+ boxes at 1.0 vs ~40
+                # at 0.78). Judging by max score alone silently picked the flood.
+                # Reject any convention whose confident-detection count is a
+                # flood, so the winning signal is a genuine peak, not saturation.
+                quality = top if n_conf <= 800 else -1.0
+                results.append((quality, scale_01, swap_rb))
+                if quality > best[0]:
+                    best = (quality, scale_01, swap_rb)
+        # If every convention flooded (all rejected), fall back to plain max score.
+        if best[0] < 0:
+            best = max(results, key=lambda r: r[0])
 
         _, self._scale_01, self._swap_rb = best
         log.info(

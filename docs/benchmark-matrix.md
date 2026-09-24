@@ -49,6 +49,22 @@ Cross-references:
 - **MOT17 numbers are the honest ceiling of the current CPU prototype.** 12.6 fps
   means real-time multi-camera tracking needs a modern GPU/edge accelerator —
   this is stated, not hidden.
+- **Detector-accuracy training experiment (honest negative result).** An attempt to
+  lift the MOTA/IDF1 metric by training/swapping detectors did **not** beat the
+  existing YOLOX-S baseline. Measured on held-out MOT17-02/04 via the reproducible
+  `scripts/eval_mot_tracking.py` (full-sequence CLEAR-MOT, no profiling gate):
+  YOLOX-S **MOTA 0.397 / IDF1 0.508** (best); yolov8m COCO (correct RGB) 0.377 / 0.511;
+  yolov8s fine-tuned on MOT17 0.331 / 0.408; yolov8n_ft 0.311 / 0.386. **Fine-tuning
+  on the small 2,916-image MOT17 subset hurt** relative to a COCO-pretrained model,
+  and a bigger COCO model (yolov8m) still did not surpass YOLOX-S on MOTA. This is
+  exactly the point that *meaningful detection-accuracy gains need better/more
+  (ideally real) data, not a bigger model on the same academic subset*. YOLOX-S
+  remains the production detector; nothing was promoted. **Genuine wins from the
+  effort:** (1) a real bug fixed — `OnnxYoloDetector` was silently misdecoding *all*
+  YOLOv8 ONNX models (a flood of ~5,000 saturated boxes from a wrong-scale
+  preprocessing probe); the probe now rejects saturation floods, so YOLOv8 models
+  decode correctly pipeline-wide; (2) `scripts/eval_mot_tracking.py`, a reproducible
+  CLEAR-MOT/IDF1 harness for held-out sequences.
 - **The GPU path is now measured: 108 fps (9.3 ms) on an RTX 4050 Laptop GPU**
   (YOLOv8n @640, ultralytics/torch), ~8.5× the CPU. This is the accelerated path a
   deployment ships on, and it makes ~3 cameras real-time (30 fps each) *on a laptop
