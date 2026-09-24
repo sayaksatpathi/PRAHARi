@@ -92,8 +92,27 @@ cost is ~1.2–1.5 ms/frame. Adding pattern-of-life to the path is effectively f
   for real *detection* testing, not normalcy. A real-footage normalcy validation
   would require a fixed deployment camera observed over weeks.
 
+## Learned baseline (observe path, not seeded) — addresses the "configured, not learned" critique
+
+The result above uses `seed_baseline` (a demo affordance). `scripts/validate_normalcy_learned.py`
+instead builds the pattern the way a live node does — by calling the production
+`NormalcyModel.observe()` over a stream of observations following a realistic
+weekly traffic profile (busy daytime plateau, quiet night) — and confirms the
+model then classifies correctly:
+
+- **Learned from 3,598 observations** → **day 14:00 = routine (ratio 0.54)**,
+  **night 02:00 = unusual (ratio 21.4)** → **PASS**.
+
+This validates the **learning mechanism** (observe → counts → classification),
+i.e. the seed was only a shortcut for the same path. **Honest limit:** the
+*observations* are a realistic *simulated* traffic profile — the simulator does
+not model real multi-week time-of-day traffic — so this is not a field baseline.
+A genuine field baseline still requires weeks of a real camera's own traffic,
+which is the #1 open gap (`var/normalcy_learned_validation.json`).
+
 ## Reproduce
 
 ```bash
-.venv/Scripts/python.exe scripts/validate_normalcy.py
+.venv/Scripts/python.exe scripts/validate_normalcy.py           # seeded
+.venv/Scripts/python.exe scripts/validate_normalcy_learned.py   # learned via observe()
 ```
