@@ -49,3 +49,8 @@ data/demo/**
 # Binary presentation deliverables (regenerated; delivered out-of-band, not committed)
 *.pptx
 *.pdf
+
+# Awiros Indian ANPR model weights + auto-cloned PaddleOCR (large; not committed)
+*.safetensors
+models/awiros_anpr/PaddleOCR/
+models/awiros_anpr/crops/
