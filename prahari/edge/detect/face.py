@@ -43,16 +43,58 @@ class FaceDetector:
         }
 
 
+class YuNetFaceDetector:
+    """OpenCV YuNet face detector — the deployable, permissively-licensed backend.
+
+    Unlike the SCRFD candidate (research/non-commercial weights), YuNet ships in
+    OpenCV Zoo under Apache/MIT terms, so it carries no licensing blocker for
+    deployment, and it is far stronger than the Haar baseline. Same interface as
+    ``FaceDetector``.
+    """
+    def __init__(self, model_path: str | Path = "models/face_yunet_2023mar.onnx",
+                 conf_thresh: float = 0.6, nms_thresh: float = 0.3) -> None:
+        self.model_path = Path(model_path)
+        if not self.model_path.exists():
+            log.warning("YuNet model not found at %s. Detector disabled.", self.model_path)
+            self._det = None
+            return
+        self._det = cv2.FaceDetectorYN_create(
+            str(self.model_path), "", (320, 320), conf_thresh, nms_thresh, 5000)
+        self.conf_thresh = conf_thresh
+        log.info("YuNet face detector initialized (%s)", self.model_path.name)
+
+    def detect(self, image: np.ndarray) -> list[tuple[int, int, int, int]]:
+        if self._det is None:
+            return []
+        h, w = image.shape[:2]
+        self._det.setInputSize((w, h))
+        _n, faces = self._det.detect(image)
+        if faces is None:
+            return []
+        return [(int(f[0]), int(f[1]), int(f[2]), int(f[3])) for f in faces]
+
+    def describe(self) -> dict:
+        return {
+            "name": "OpenCV YuNet 2023mar",
+            "enabled": self._det is not None,
+            "type": "face_detector",
+            "license": "Apache/MIT (deployable)",
+        }
+
+
 def build_face_detector(backend: str = "haar", **kwargs):
     """Return a face detector by backend name, behind one interface.
 
-    Both backends expose ``detect(image) -> [(x, y, w, h)]`` and ``describe()``.
+    All backends expose ``detect(image) -> [(x, y, w, h)]`` and ``describe()``.
     Additive helper — the Haar ``FaceDetector`` above is the unchanged default
-    baseline; ``"scrfd"`` selects the ONNX SCRFD-500M backend.
+    baseline. ``"yunet"`` is the recommended **deployable** backend (Apache/MIT,
+    strong accuracy); ``"scrfd"`` is a research-only-weights candidate.
     """
     backend = (backend or "haar").lower()
     if backend in ("haar", "haarcascade", "opencv"):
         return FaceDetector()
+    if backend in ("yunet", "yunet_2023"):
+        return YuNetFaceDetector(**kwargs)
     if backend in ("scrfd", "scrfd_500m", "onnx"):
         from prahari.edge.detect.scrfd import ScrfdFaceDetector
         return ScrfdFaceDetector(**kwargs)

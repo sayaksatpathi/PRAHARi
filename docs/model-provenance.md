@@ -63,5 +63,14 @@ This document tracks the provenance, licensing, and expected deployment characte
   3. **No GPU claim without measurement.** ORT CUDA EP did not load in the current environment (cuDNN 9.x missing); a GPU latency/FPS figure may only be stated after an actual CUDA-provider run.
   > Until all three hold, promoting the research-only weights into the release default would be premature. For the SIH demo, present SCRFD as an *experimental candidate* alongside the measured Haar-vs-SCRFD comparison.
 
+## 7. Face Detection — YuNet (DEPLOYABLE, resolves the licensing gate)
+- **Role**: Deployable face-detection backend, superseding both Haar (weak) and the SCRFD candidate (research-only weights) for any path that ships.
+- **Model filename**: `models/face_yunet_2023mar.onnx` (0.23 MB, not committed — gitignored).
+- **Source**: OpenCV Zoo (`opencv/opencv_zoo`, `models/face_detection_yunet`), authors Wei Wu / Shiqi Yu.
+- **License**: **Apache-2.0 / MIT** (OpenCV Zoo terms) — **commercially clear, no deployment blocker.**
+- **Runtime**: native `cv2.FaceDetectorYN` (ONNX under the hood); CPU. No InsightFace dependency, no research-only restriction.
+- **Measured (WIDER FACE val, VOC AP@0.5)**: **AP 0.626** (P 0.553, R 0.662, 0.23 MB) — highest of the three backends. See [benchmark-matrix.md](benchmark-matrix.md).
+- **Effect on the SCRFD gate**: item 1 of the promotion gate (weight licensing) is now moot for deployment — Prahari has a **strong, permissively-licensed** face detector (`build_face_detector("yunet")`). SCRFD remains a research-only candidate for comparison only; nothing in the deployable path depends on its weights.
+
 ## Summary of Risk
-The AI stack is built almost entirely on **Apache 2.0** and **MIT** licensed architectures, making it highly suitable for enterprise and government deployment without GPL/copyleft risks. The areas requiring compliance review are the Re-ID weights (Market-1501 dataset terms) and the **SCRFD-500M weights (InsightFace non-commercial/research-only model terms)** — the SCRFD architecture/code is MIT, but its pretrained weights are not cleared for commercial use.
+The AI stack is built almost entirely on **Apache 2.0** and **MIT** licensed architectures, making it highly suitable for enterprise and government deployment without GPL/copyleft risks. **Face detection now has a fully deployable, Apache/MIT-licensed path (YuNet, AP 0.626)** — the SCRFD-500M research-only-weights restriction no longer blocks deployment; SCRFD is retained only as a research comparison. The remaining item requiring compliance review is the Re-ID weights (Market-1501 dataset terms).

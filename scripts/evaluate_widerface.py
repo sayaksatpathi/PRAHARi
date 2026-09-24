@@ -146,12 +146,37 @@ def build_detector(name: str, provider: str, conf: float):
         }
         return "scrfd", detect_fn, meta
 
+    if name in ("yunet", "yunet_2023"):
+        model = ROOT / "models/face_yunet_2023mar.onnx"
+        assert model.exists(), f"missing {model}"
+        det = cv2.FaceDetectorYN_create(str(model), "", (320, 320), conf, 0.3, 5000)
+
+        def detect_fn(img):
+            h, w = img.shape[:2]
+            det.setInputSize((w, h))
+            n, faces = det.detect(img)
+            if faces is None:
+                return []
+            out = []
+            for f in faces:
+                out.append(([float(f[0]), float(f[1]), float(f[2]), float(f[3])], float(f[14])))
+            return out
+
+        meta = {
+            "detector": "OpenCV YuNet 2023mar (models/face_yunet_2023mar.onnx)",
+            "params": {"conf_thresh": conf, "nms_thresh": 0.3},
+            "provider": "CPU",
+            "model_size_bytes": model.stat().st_size,
+            "classification": "DEPLOYABLE (Apache/MIT license)",
+        }
+        return "yunet", detect_fn, meta
+
     raise ValueError(f"unknown detector: {name}")
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--detector", default="haar", choices=["haar", "scrfd", "scrfd_500m"])
+    ap.add_argument("--detector", default="haar", choices=["haar", "scrfd", "scrfd_500m", "yunet"])
     ap.add_argument("--provider", default="auto", help="scrfd only: auto|cpu|cuda")
     ap.add_argument("--conf", type=float, default=0.3, help="scrfd score threshold")
     ap.add_argument("--images", type=Path, default=DEFAULT_IMAGES)

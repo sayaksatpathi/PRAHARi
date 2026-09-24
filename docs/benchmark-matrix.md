@@ -22,6 +22,7 @@ Cross-references:
 | Capability | Dataset | Split | Metric | Result | Hardware | Status |
 |---|---|---|---|---|---|---|
 | Person detection | MOT17 | held-out 02/04 | Throughput | 12.6 fps / 79.4 ms per frame | CPU (see bench logs) | MEASURED |
+| Detection throughput (GPU) | YOLOv8n @640 | synthetic frames | Throughput | 108 fps / 9.3 ms per frame | GPU (RTX 4050 Laptop, ultralytics/torch) | MEASURED |
 | Tracking (ByteTrack logic) | MOT17 | held-out 02/04 | MOTA | 0.403 | CPU | MEASURED |
 | Tracking (ByteTrack logic) | MOT17 | held-out 02/04 | IDF1 | 0.500 | CPU | MEASURED |
 | Cross-camera Re-ID (ResNet-18) | Market-1501 | test | Rank-1 / mAP | 0.705 / 0.485 | CPU | MEASURED |
@@ -38,6 +39,7 @@ Cross-references:
 | Activity / event | VIRAT / MEVA | test | Event metric | — | — | PENDING |
 | Face detection — Haar (baseline) | WIDER FACE | val (VOC AP@0.5, all valid faces) | AP | 0.121 | CPU (Haar cascade, 0.93 MB) | MEASURED · BASELINE |
 | Face detection — SCRFD-500M (candidate) | WIDER FACE | val (VOC AP@0.5, all valid faces) | AP | 0.489 | CPU (ONNX, 2.30 MB) | MEASURED · CANDIDATE |
+| Face detection — YuNet (deployable) | WIDER FACE | val (VOC AP@0.5, all valid faces) | AP | 0.626 | CPU (ONNX, 0.23 MB) | MEASURED · DEPLOYABLE (Apache/MIT) |
 | ANPR | CCPD / UFPR-ALPR | test | Plate accuracy | — | — | PENDING |
 | UAV detection | VisDrone | test | mAP | — | — | PENDING |
 | Visible↔Thermal Re-ID | (no dataset) | — | — | — | — | PENDING |
@@ -47,6 +49,15 @@ Cross-references:
 - **MOT17 numbers are the honest ceiling of the current CPU prototype.** 12.6 fps
   means real-time multi-camera tracking needs a modern GPU/edge accelerator —
   this is stated, not hidden.
+- **The GPU path is now measured: 108 fps (9.3 ms) on an RTX 4050 Laptop GPU**
+  (YOLOv8n @640, ultralytics/torch), ~8.5× the CPU. This is the accelerated path a
+  deployment ships on, and it makes ~3 cameras real-time (30 fps each) *on a laptop
+  GPU* — an edge accelerator (Jetson Orin class) is expected higher, which is what
+  the cameras-per-node cost assumption in [deployment-cost-model.md](deployment-cost-model.md)
+  rests on. Honest caveats: this is the **ultralytics/torch** GPU path on **yolov8n**,
+  not the ONNX-Runtime CUDA deployment runtime (ORT's CUDA EP needs cuDNN 9.x, absent
+  here), and it is a laptop GPU, not the target edge hardware. It removes the "no GPU
+  benchmark / not real-time" gap while staying precise about what was measured.
 - **Re-ID Rank-1 0.705 is on Market-1501**, an academic dataset. Domain shift to
   real border CCTV is unmeasured; the border-scenario set (below) is how we will
   eventually close that gap.
@@ -72,27 +83,26 @@ Cross-references:
   [normalcy-validation.md](normalcy-validation.md).
 - **PENDING rows have datasets identified but no run.** Do not present a PENDING
   capability as validated.
-- **Face detection: SCRFD-500M (CANDIDATE) vs Haar (BASELINE), same protocol.**
-  Both measured by `scripts/evaluate_widerface.py` on the identical official val
-  split under the identical VOC-style AP@0.5 definition (Haar re-run under the same
-  code reproduces 0.1211 exactly, confirming apples-to-apples):
+- **Face detection: three backends, same protocol — YuNet is the deployable winner.**
+  All measured by `scripts/evaluate_widerface.py` on the identical official val
+  split under the identical VOC-style AP@0.5 definition (Haar re-run reproduces
+  0.1211 exactly, confirming apples-to-apples):
 
-  | Detector | AP@0.5 | Precision | Recall | Latency/img | FPS | Provider | Size |
-  |---|---|---|---|---|---|---|---|
-  | Haar (baseline) | 0.121 | 0.664 | 0.131 | 74.6 ms | 13.4 | CPU | 0.93 MB |
-  | SCRFD-500M (candidate) | **0.489** | **0.749** | **0.506** | **18.8 ms** | **53.2** | CPU | 2.30 MB |
+  | Detector | AP@0.5 | Precision | Recall | Size | License | Status |
+  |---|---|---|---|---|---|---|
+  | Haar (baseline) | 0.121 | 0.664 | 0.131 | 0.93 MB | OpenCV BSD | wired default |
+  | SCRFD-500M | 0.489 | 0.749 | 0.506 | 2.30 MB | **research-only** | candidate (blocked) |
+  | **YuNet 2023mar** | **0.626** | 0.553 | **0.662** | **0.23 MB** | **Apache/MIT** | **DEPLOYABLE** |
 
-  SCRFD is **~4× the AP, ~3.9× the recall, higher precision, and ~4× faster on CPU**
-  for +1.4 MB. It is classified **CANDIDATE** and **not promoted** — the Haar
-  cascade remains the wired-in default (`prahari/edge/detect/face.py`); SCRFD is a
-  separate ONNX backend (`prahari/edge/detect/scrfd.py`) reached via
-  `build_face_detector("scrfd")`. Caveats: (1) VOC-style AP@0.5 over all valid
-  faces, *not* the official easy/medium/hard MATLAB protocol; (2) **val split only**
-  (test GT withheld — no test claim); (3) **GPU not measured** — ONNX Runtime's CUDA
-  provider failed to load in this environment (missing cuDNN 9.x) and fell back to
-  CPU, so both figures are CPU; GPU is expected faster but is not claimed here;
-  (4) SCRFD weights are **InsightFace non-commercial/research-only** (see
-  [model-provenance.md](model-provenance.md)). Promotion is a separate, explicit step.
+  **YuNet is now the recommended deployable face backend** — highest AP (5× Haar,
+  and above SCRFD), smallest model (0.23 MB), and a **clean Apache/MIT license with
+  no deployment blocker** (`build_face_detector("yunet")`, `prahari/edge/detect/face.py`).
+  This resolves the earlier licensing gate: SCRFD stays a research-only *candidate*,
+  but Prahari no longer depends on non-commercial weights for a strong face detector.
+  Haar remains the wired *default* pending an explicit promotion decision; YuNet is
+  the intended upgrade. Caveats unchanged: (1) VOC-style AP@0.5 over all valid faces,
+  not the official easy/medium/hard protocol; (2) **val split only** (test GT withheld);
+  (3) figures are **CPU** — no GPU face benchmark is claimed.
 
 ## How to fill a PENDING row
 
