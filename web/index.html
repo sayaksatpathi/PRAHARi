@@ -19,22 +19,22 @@
       </div>
     </div>
     <div class="panel-body">
-      <p class="small dim" style="margin-top:0">
+      <p class="small dim" style="margin-top:0" data-i18n="login.subtitle">
         Border video-intelligence layer. Sign in to continue.
       </p>
       <form id="login-form">
         <div class="field">
-          <label for="lg-user">Username</label>
+          <label for="lg-user" data-i18n="login.username">Username</label>
           <input id="lg-user" autocomplete="username" value="admin" required>
         </div>
         <div class="field">
-          <label for="lg-pass">Password</label>
+          <label for="lg-pass" data-i18n="login.password">Password</label>
           <input id="lg-pass" type="password" autocomplete="current-password" required>
         </div>
         <div id="login-error" class="notice bad" style="display:none;margin-bottom:11px"></div>
-        <button class="primary" style="width:100%" type="submit">Sign in</button>
+        <button class="primary" style="width:100%" type="submit" data-i18n="login.signin">Sign in</button>
       </form>
-      <p class="tiny faint" style="margin-bottom:0">
+      <p class="tiny faint" style="margin-bottom:0" data-i18n="login.hint">
         The initial administrator password is printed once to the node console on
         first start.
       </p>
@@ -60,26 +60,27 @@
     <span class="badge" id="tb-detector" title="Which detector backend is running">—</span>
     <span class="tiny dim mono" id="tb-clock">—</span>
     <span class="tiny dim" id="tb-user">—</span>
-    <button class="sm" id="tb-logout">Sign out</button>
+    <button class="sm" id="tb-lang" title="Language / भाषा">EN</button>
+    <button class="sm" id="tb-logout" data-i18n="topbar.logout">Sign out</button>
   </div>
 
   <nav class="sidebar">
-    <div class="nav-section">Operations</div>
-    <div class="nav-item active" data-view="dashboard"><span>Dashboard</span></div>
-    <div class="nav-item" data-view="cameras"><span>Live Cameras</span><span class="tiny faint" id="nav-cam-count"></span></div>
-    <div class="nav-item" data-view="alerts"><span>Alerts</span><span class="badge b-high tiny" id="nav-alert-count" style="display:none"></span></div>
-    <div class="nav-item" data-view="events"><span>Event Log</span></div>
-    <div class="nav-item" data-view="crosscam"><span>Cross-Camera</span><span class="tiny faint" id="nav-crosscam-count"></span></div>
-    <div class="nav-item" data-view="patrol"><span>Patrol Suppression</span><span class="tiny faint" id="nav-patrol-count"></span></div>
+    <div class="nav-section" data-i18n="nav.operations">Operations</div>
+    <div class="nav-item active" data-view="dashboard"><span data-i18n="nav.dashboard">Dashboard</span></div>
+    <div class="nav-item" data-view="cameras"><span data-i18n="nav.cameras">Live Cameras</span><span class="tiny faint" id="nav-cam-count"></span></div>
+    <div class="nav-item" data-view="alerts"><span data-i18n="nav.alerts">Alerts</span><span class="badge b-high tiny" id="nav-alert-count" style="display:none"></span></div>
+    <div class="nav-item" data-view="events"><span data-i18n="nav.events">Event Log</span></div>
+    <div class="nav-item" data-view="crosscam"><span data-i18n="nav.crosscam">Cross-Camera</span><span class="tiny faint" id="nav-crosscam-count"></span></div>
+    <div class="nav-item" data-view="patrol"><span data-i18n="nav.patrol">Patrol Suppression</span><span class="tiny faint" id="nav-patrol-count"></span></div>
 
-    <div class="nav-section">Configuration</div>
-    <div class="nav-item" data-view="capability"><span>Camera Capability</span></div>
-    <div class="nav-item" data-view="zones"><span>Zones &amp; Rules</span></div>
+    <div class="nav-section" data-i18n="nav.configuration">Configuration</div>
+    <div class="nav-item" data-view="capability"><span data-i18n="nav.capability">Camera Capability</span></div>
+    <div class="nav-item" data-view="zones"><span data-i18n="nav.zones">Zones &amp; Rules</span></div>
 
-    <div class="nav-section">Node</div>
-    <div class="nav-item" data-view="health"><span>System Health</span></div>
-    <div class="nav-item" data-view="integrity"><span>Evidence Integrity</span></div>
-    <div class="nav-item" data-view="demo"><span>Demonstration</span></div>
+    <div class="nav-section" data-i18n="nav.node">Node</div>
+    <div class="nav-item" data-view="health"><span data-i18n="nav.health">System Health</span></div>
+    <div class="nav-item" data-view="integrity"><span data-i18n="nav.integrity">Evidence Integrity</span></div>
+    <div class="nav-item" data-view="demo"><span data-i18n="nav.demo">Demonstration</span></div>
   </nav>
 
   <main class="main" id="view"></main>
@@ -88,6 +89,7 @@
 <div id="toast"></div>
 <div id="modal-root"></div>
 
+<script src="/ui/js/i18n.js"></script>
 <script src="/ui/js/api.js"></script>
 <script src="/ui/js/ui.js"></script>
 <script src="/ui/js/views.js"></script>
