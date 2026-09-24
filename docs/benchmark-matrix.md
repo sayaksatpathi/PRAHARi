@@ -23,6 +23,7 @@ Cross-references:
 |---|---|---|---|---|---|---|
 | Person detection | MOT17 | held-out 02/04 | Throughput | 12.6 fps / 79.4 ms per frame | CPU (see bench logs) | MEASURED |
 | Detection throughput (GPU) | YOLOv8n @640 | synthetic frames | Throughput | 108 fps / 9.3 ms per frame | GPU (RTX 4050 Laptop, ultralytics/torch) | MEASURED |
+| Detection+tracking (MOT17) | yolov8m @1280 | held-out 02/04 | MOTA / IDF1 | **0.435 / 0.563** (beats YOLOX-S 0.397/0.508) | CPU | MEASURED · IMPROVED |
 | Tracking (ByteTrack logic) | MOT17 | held-out 02/04 | MOTA | 0.403 | CPU | MEASURED |
 | Tracking (ByteTrack logic) | MOT17 | held-out 02/04 | IDF1 | 0.500 | CPU | MEASURED |
 | Cross-camera Re-ID (ResNet-18) | Market-1501 | test | Rank-1 / mAP | 0.705 / 0.485 | CPU | MEASURED |
