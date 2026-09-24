@@ -43,7 +43,7 @@ Cross-references:
 | ANPR (detection) | Real Indian plates (13 imgs) | field images | Plate localised | 12/13 | CPU (fast-alpr) | MEASURED · REAL-FOOTAGE |
 | ANPR (OCR) — fast-alpr global | Real Indian plates (4 labelled) | field images | Exact / char-sim | 0/4 · 0.76 | CPU | MEASURED |
 | ANPR (OCR) — EasyOCR (crop+upscale) | Real Indian plates (4 labelled) | field images | Exact / char-sim | 2/4 · 0.89 | CPU | MEASURED |
-| ANPR (OCR) — **Awiros Indian specialist (Apache-2.0)** | Real Indian plates (4 labelled) | field images | Exact / char-sim | **3/4 · 0.99** | CPU (Paddle) | MEASURED · DEPLOYABLE |
+| ANPR (OCR) — **Awiros Indian specialist (Apache-2.0)** | Real Indian plates (4 labelled) | field images | Exact (raw / +format filter) | 3/4 → **4/4** · 0.99 | CPU (Paddle) | MEASURED · DEPLOYABLE |
 | UAV detection | VisDrone | test | mAP | — | — | PENDING |
 | Visible↔Thermal Re-ID | (no dataset) | — | — | — | — | PENDING |
 
