@@ -97,12 +97,15 @@ explicitly so an un-fetched dataset is never mistaken for a local one.
 | Intended split | Train → `data/training/activity/StreetScene/`; Test → `data/testing/street_scene/` |
 | Target module | `normalcy.py` (train on normal, detect anomalous) |
 
-> **Blocker (2026-09-18):** Street Scene is a single **48.98 GB** archive. The
-> provisioning host has **~15 GB free**, so the archive cannot be downloaded or
-> extracted here. Provenance above is verified from the official Zenodo record;
-> the dataset itself remains un-fetched until sufficient storage (≥ ~100 GB free
-> to hold archive + extraction, or an external volume) is available. Do not treat
-> Street Scene as locally present until `Download date` and `Local checksum` are
+> **Status (updated 2026-09-24): disk blocker cleared, download deferred.** The
+> project now lives on a 931 GB SSD (`E:`) with ~330 GB free, so the 48.98 GB
+> archive + extraction now fits. The remaining blocker is **download time** — at
+> typical throughput the 49 GB pull is a multi-hour job, impractical to complete
+> and benchmark in an interactive session. Provenance is verified from the Zenodo
+> record (md5 `a74c51e…`, CC-BY-SA-4.0); fetch it as a standalone/overnight job
+> (`curl -C - https://zenodo.org/api/records/10870472/files/StreetScene.zip/content`)
+> then benchmark the normalcy/anomaly path. Do not treat Street Scene as locally
+> present until `Download date` and `Local checksum` are
 > filled in.
 
 ### WIDER FACE (face detection)
