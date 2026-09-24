@@ -164,3 +164,11 @@ generic street/transit scenes, **NOT border footage**. Results in
 
 > Stock footage is **demo footage, not a benchmark.** Do not cite it as evidence
 > of measured accuracy.
+
+### Real Indian ANPR test images (downloaded 2026-09-24)
+
+`data/testing/anpr_india/` (gitignored) — 13 real Indian vehicle images for ANPR
+validation, from the public GitHub repo `sid0312/ANPR`
+(https://github.com/sid0312/ANPR, `darknet/data/obj/car_*.jpeg`). Used only to
+test fast-alpr on **Indian** plates (vs the Chinese CCPD set). Results:
+`var/anpr_india_results.json`, annotated in `var/anpr_india/`.

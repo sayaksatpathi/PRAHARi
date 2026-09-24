@@ -40,7 +40,8 @@ Cross-references:
 | Face detection — Haar (baseline) | WIDER FACE | val (VOC AP@0.5, all valid faces) | AP | 0.121 | CPU (Haar cascade, 0.93 MB) | MEASURED · BASELINE |
 | Face detection — SCRFD-500M (candidate) | WIDER FACE | val (VOC AP@0.5, all valid faces) | AP | 0.489 | CPU (ONNX, 2.30 MB) | MEASURED · CANDIDATE |
 | Face detection — YuNet (deployable) | WIDER FACE | val (VOC AP@0.5, all valid faces) | AP | 0.626 | CPU (ONNX, 0.23 MB) | MEASURED · DEPLOYABLE (Apache/MIT) |
-| ANPR | CCPD / UFPR-ALPR | test | Plate accuracy | — | — | PENDING |
+| ANPR (detection) | Real Indian plates (13 imgs) | field images | Plate localised | 12/13 | CPU (fast-alpr) | MEASURED · REAL-FOOTAGE |
+| ANPR (OCR) | Real Indian plates | field images | State/district vs full-string | state code ✓, suffix partial | CPU (fast-alpr global OCR) | MEASURED · PARTIAL |
 | UAV detection | VisDrone | test | mAP | — | — | PENDING |
 | Visible↔Thermal Re-ID | (no dataset) | — | — | — | — | PENDING |
 
