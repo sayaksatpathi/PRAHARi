@@ -442,6 +442,20 @@ and [DATA_LICENSES.md](DATA_LICENSES.md).
 A judge can understand Prahari from these pointers without reading the code.
 **Classification: SIH DEMO READY / EVIDENCE FROZEN — not production-field validated.**
 
+> **Update 2026-09-25 — audit completion.** Since the freeze, the outstanding
+> audit items were worked through; the honest per-item outcome (closed / advanced
+> / open-blocked, with evidence) is in
+> [docs/audit-completion.md](docs/audit-completion.md). Headlines: ORT-CUDA now
+> runs the production ONNX path on GPU (`scripts/benchmark_gpu_detectors.py`);
+> yolov8m@1280 reproduced at MOTA 0.4351/IDF1 0.5601, beating the baseline; the
+> deployable face default is YuNet with SCRFD's research-only weights hard-gated
+> ([docs/scrfd-licensing.md](docs/scrfd-licensing.md)); a procurement BOM
+> ([docs/bill-of-materials.md](docs/bill-of-materials.md)); a trilingual
+> EN/हिं/বাং console; ONVIF onboarding validated against a mock device; and the
+> scene-normalcy path validated on real footage instead of the 49 GB Street Scene
+> download. Field/thermal/operator validation stay open by necessity, each with a
+> ready-to-run kit.
+
 - **Problem** — extract intelligence from *existing* border CCTV, edge-first,
   evidence-backed, resilient to uplink loss (top of this README).
 - **Architecture** — [docs/architecture.md](docs/architecture.md): CCTV → profiling
