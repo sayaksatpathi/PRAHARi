@@ -452,8 +452,10 @@ A judge can understand Prahari from these pointers without reading the code.
 > ([docs/scrfd-licensing.md](docs/scrfd-licensing.md)); a procurement BOM
 > ([docs/bill-of-materials.md](docs/bill-of-materials.md)); a trilingual
 > EN/हिं/বাং console; ONVIF onboarding validated against a mock device; and the
-> scene-normalcy path validated on real footage instead of the 49 GB Street Scene
-> download. Field/thermal/operator validation stay open by necessity, each with a
+> scene-anomaly capability benchmarked to the **official Street Scene protocol**
+> (frame AUC 0.907 / RBDC 0.648 / TBDC 0.612 on UCSD Ped2) instead of the 49 GB
+> download ([docs/streetscene-benchmark.md](docs/streetscene-benchmark.md)).
+> Field/thermal/operator validation stay open by necessity, each with a
 > ready-to-run kit.
 
 - **Problem** — extract intelligence from *existing* border CCTV, edge-first,

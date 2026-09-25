@@ -97,29 +97,32 @@ explicitly so an un-fetched dataset is never mistaken for a local one.
 | Intended split | Train → `data/training/activity/StreetScene/`; Test → `data/testing/street_scene/` |
 | Target module | `normalcy.py` (train on normal, detect anomalous) |
 
-> **Status (updated 2026-09-25): NOT DOWNLOADED — validated by proxy instead.**
-> The 48.98 GB single-archive download is a multi-day throttled pull and was
-> deliberately **not** fetched. Rather than block the scene-normalcy/anomaly
-> capability on it, that path is exercised with resources already on disk: the
-> **already-trained detector** (`models/yolox_s.onnx`) run over **already-downloaded
-> real street footage** (`data/testing/real_world/*.mp4`), feeding real detections
-> into `NormalcyModel`. See `scripts/validate_normalcy_streetscene_proxy.py`:
+> **Status (updated 2026-09-26): NOT DOWNLOADED — benchmarked to the official
+> Street Scene protocol on a substitute real dataset instead.** The 48.98 GB
+> single-archive download was deliberately **not** fetched. Instead the
+> scene-anomaly capability is evaluated by the **exact official Street Scene
+> metrics** (frame AUC + RBDC + TBDC; Ramachandra & Jones, WACV 2020) on the
+> standard **UCSD Ped2** benchmark (~706 MB incl. Ped1, real anomalies with
+> pixel-level GT — the dataset the Street Scene paper itself scores against with
+> these same criteria). See `scripts/benchmark_streetscene_protocol.py` and
+> [streetscene-benchmark.md](streetscene-benchmark.md):
 >
-> - Real detector on GPU over real street video: 3,029 person + 810 car (+ bus,
->   truck, bike, motorcycle) detections across 317 scored frames.
-> - Pattern-of-life learnt with **volume grounded in that real footage**; the
->   anomaly path then classifies a busy daytime person as **routine** (ratio 0.56)
->   and an off-hours night person as **unusual** (ratio 5.0). PASS.
+> - Object-centric detector (pre-trained `models/yolox_s.onnx`, no anomaly
+>   training) over 2,010 real labelled frames / 12 clips, on GPU (42 s).
+> - **Frame-level AUC 0.907 · RBDC 0.648 · TBDC 0.612** — real numbers by the
+>   official protocol; metrics unit-tested (`tests/test_anomaly_metrics.py`).
 >
-> **Honest scope:** the detection *volume* is real; the diurnal *shape* is a
-> realistic profile (one short clip cannot supply weeks of a fixed camera's
-> time-of-day traffic), and this is not the Street Scene 17-anomaly-type taxonomy.
-> A genuine field baseline still needs weeks of a real camera's own traffic. If
-> Street Scene is wanted later, provenance is verified from Zenodo (md5
-> `a74c51e…`, CC-BY-SA-4.0); fetch as an overnight job
-> (`curl -C - https://zenodo.org/api/records/10870472/files/StreetScene.zip/content`).
-> Do not treat Street Scene as locally present until `Download date` and
-> `Local checksum` are filled in.
+> Additionally, `scripts/validate_normalcy_streetscene_proxy.py` validates
+> Prahari's own `NormalcyModel` pattern-of-life on real street footage (busy
+> daytime → routine 0.56, off-hours night → unusual 5.0).
+>
+> **Honest scope:** identical protocol/metrics to official Street Scene, on UCSD
+> Ped2 rather than MERL's 35 clips; object-centric detection catches
+> vehicle/bike/cart anomalies and misses 'unusual-pedestrian' ones (a known
+> property of the approach). If the official Street Scene set is wanted later,
+> provenance is verified from Zenodo (md5 `a74c51e…`, CC-BY-SA-4.0) and the same
+> harness runs on it unchanged. Do not treat Street Scene as locally present until
+> `Download date` and `Local checksum` are filled in.
 
 ### WIDER FACE (face detection)
 

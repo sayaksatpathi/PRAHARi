@@ -28,7 +28,7 @@ not faked). Nothing here reports a fabricated field number.
 | 3 | YOLOv8 pipeline bug | Fixed | **VERIFIED** | reproduced sane strong numbers (item 2) |
 | 4 | Reproducible MOT evaluation | Done | **VERIFIED** | independently re-run on GPU, `scripts/eval_mot_tracking.py` |
 | 5 | GPU capability | Measured | **EXTENDED to production runtime** | ORT-CUDA lineup, `scripts/benchmark_gpu_detectors.py` |
-| 6 | Street Scene unavailable | Download active | **CLOSED via proxy — no download** | real footage + pre-trained model, `scripts/validate_normalcy_streetscene_proxy.py` |
+| 6 | Street Scene unavailable | Download active | **CLOSED — official-protocol benchmark, no 49GB download** | frame AUC **0.907** / RBDC **0.648** / TBDC **0.612** on UCSD Ped2, `scripts/benchmark_streetscene_protocol.py` + [streetscene-benchmark.md](streetscene-benchmark.md) |
 | 7 | Cost/BOM | Still important | **DELIVERED** | [bill-of-materials.md](bill-of-materials.md) + measured cameras/node |
 | 8 | Hindi/regional UI | Still useful | **DELIVERED — trilingual** | EN/हिं/বাং across dynamic views, `web/js/i18n.js` |
 | 9 | ONVIF validation | Still open | **ADVANCED — onboarding validated** | mock-device + contract, `tests/test_onvif.py` |
@@ -56,12 +56,19 @@ the **production ONNX-CUDA** throughput lineup (YOLOX-S ~104 fps, matching the o
 108 fps figure but now on the deployable runtime, not torch), which also grounds
 the cost model.
 
-**6 — Street Scene.** The 49 GB download was deliberately skipped. The
-scene-normalcy/anomaly path is instead exercised with the already-trained detector
-over already-present real street footage: 3,029 person + 810 car detections feed a
-learnt pattern of life; a busy daytime person reads **routine** (ratio 0.56) and
-an off-hours night person reads **unusual** (ratio 5.0). Honest scope stated in
-code and [data-strategy.md](data-strategy.md).
+**6 — Street Scene.** The 49 GB download was deliberately skipped. Instead the
+scene-anomaly capability is evaluated by the **exact official Street Scene protocol**
+(frame AUC + RBDC + TBDC; Ramachandra & Jones, WACV 2020) on the standard **UCSD
+Ped2** benchmark (~706 MB, real labelled anomalies with pixel-level GT — the
+dataset the Street Scene paper itself scores against with these criteria). Using an
+object-centric detector on the pre-trained `yolox_s.onnx` (no anomaly training):
+**frame AUC 0.907 · RBDC 0.648 · TBDC 0.612** over 2,010 labelled frames on GPU.
+Metrics are unit-tested (`tests/test_anomaly_metrics.py`); harness in
+`prahari/eval/anomaly.py` + `scripts/benchmark_streetscene_protocol.py`; full
+write-up in [streetscene-benchmark.md](streetscene-benchmark.md). Additionally,
+`scripts/validate_normalcy_streetscene_proxy.py` validates Prahari's own normalcy
+mechanism on real footage (daytime routine 0.56 / night unusual 5.0). Honest
+scope: identical protocol on UCSD Ped2 rather than MERL's 35 clips.
 
 **7 — Cost/BOM.** New [bill-of-materials.md](bill-of-materials.md): itemised
 per-site edge node, sector core, license-clean software BOM (₹0 per-seat, no
