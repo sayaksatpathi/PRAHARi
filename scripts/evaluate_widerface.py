@@ -130,7 +130,10 @@ def build_detector(name: str, provider: str, conf: float):
         import sys
         sys.path.insert(0, str(ROOT))
         from prahari.edge.detect.scrfd import ScrfdFaceDetector
-        det = ScrfdFaceDetector(provider=provider, conf_thresh=conf)
+        # This is an explicit evaluation context; research-only weights are
+        # permitted here but never on a deployment path (docs/scrfd-licensing.md).
+        det = ScrfdFaceDetector(provider=provider, conf_thresh=conf,
+                                allow_research_weights=True)
         assert det.session is not None, "SCRFD model not loaded"
 
         def detect_fn(img):

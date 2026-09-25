@@ -82,15 +82,27 @@ class YuNetFaceDetector:
         }
 
 
-def build_face_detector(backend: str = "haar", **kwargs):
+def build_face_detector(backend: str = "auto", **kwargs):
     """Return a face detector by backend name, behind one interface.
 
     All backends expose ``detect(image) -> [(x, y, w, h)]`` and ``describe()``.
-    Additive helper — the Haar ``FaceDetector`` above is the unchanged default
-    baseline. ``"yunet"`` is the recommended **deployable** backend (Apache/MIT,
-    strong accuracy); ``"scrfd"`` is a research-only-weights candidate.
+
+    - ``"auto"`` (default, deployable): YuNet when its model is present, else the
+      Haar cascade. This is the shipping path and it never touches research-only
+      weights — resolving the SCRFD licensing gate for anything that deploys
+      (docs/scrfd-licensing.md).
+    - ``"yunet"``: the permissively-licensed (Apache/MIT) deployable backend.
+    - ``"haar"``: the always-available OpenCV baseline (no external weights).
+    - ``"scrfd"``: a **research-only-weights** candidate, gated — it refuses to
+      load unless research use is explicitly acknowledged (evaluation only).
     """
-    backend = (backend or "haar").lower()
+    backend = (backend or "auto").lower()
+    if backend in ("auto", "default"):
+        yunet = YuNetFaceDetector(**kwargs)
+        if getattr(yunet, "_det", None) is not None:
+            return yunet
+        log.info("YuNet model absent; face detection falls back to Haar baseline.")
+        return FaceDetector()
     if backend in ("haar", "haarcascade", "opencv"):
         return FaceDetector()
     if backend in ("yunet", "yunet_2023"):

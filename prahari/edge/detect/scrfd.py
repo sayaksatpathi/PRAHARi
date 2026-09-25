@@ -12,6 +12,7 @@ checksum and license.
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 import cv2
@@ -20,6 +21,20 @@ import numpy as np
 log = logging.getLogger("prahari.face.scrfd")
 
 DEFAULT_MODEL = Path("models/scrfd_500m.onnx")
+
+# The SCRFD-500M pretrained weights (InsightFace) are stated for non-commercial /
+# research use only. They must never reach a deployment path, so this backend
+# refuses to load unless research use is explicitly acknowledged — either the
+# constructor flag allow_research_weights=True or PRAHARI_ALLOW_RESEARCH_WEIGHTS=1.
+# The deployable face path is YuNet/Haar via build_face_detector("auto"); see
+# docs/scrfd-licensing.md and docs/model-provenance.md.
+_RESEARCH_ENV = "PRAHARI_ALLOW_RESEARCH_WEIGHTS"
+
+
+def _research_use_permitted(explicit: bool) -> bool:
+    if explicit:
+        return True
+    return os.environ.get(_RESEARCH_ENV, "").strip().lower() in ("1", "true", "yes")
 
 
 def _distance2bbox(points: np.ndarray, distance: np.ndarray) -> np.ndarray:
@@ -59,7 +74,18 @@ class ScrfdFaceDetector:
         provider: str = "auto",
         conf_thresh: float = 0.3,
         nms_thresh: float = 0.4,
+        allow_research_weights: bool = False,
     ) -> None:
+        if not _research_use_permitted(allow_research_weights):
+            raise RuntimeError(
+                "SCRFD-500M uses research-only / non-commercial InsightFace "
+                "weights and is blocked from loading on any deployment path. "
+                "Use build_face_detector('auto') for the deployable YuNet/Haar "
+                "path. For evaluation only, pass allow_research_weights=True or "
+                f"set {_RESEARCH_ENV}=1. See docs/scrfd-licensing.md."
+            )
+        log.warning("SCRFD research-only weights loaded (evaluation use). "
+                    "Not for deployment — see docs/scrfd-licensing.md.")
         import onnxruntime as ort
 
         self.model_path = Path(model_path)
@@ -70,14 +96,21 @@ class ScrfdFaceDetector:
         self._num_anchors = 2
         self._center_cache: dict[tuple, np.ndarray] = {}
 
-        if provider == "auto":
-            avail = ort.get_available_providers()
+        # Use the shared CUDA helper so ORT's CUDA EP is only offered when the
+        # runtime was actually made loadable (it borrows cuDNN 9 from torch/lib
+        # on Windows) — otherwise CUDA "fails to create" and silently drops to
+        # CPU with a scary error. Aligns SCRFD with the production detector path.
+        from prahari.common import cuda as _cuda
+        device = "cpu" if provider not in ("auto", "cuda", "gpu") else \
+                 ("cuda" if provider in ("cuda", "gpu") else "auto")
+        if device == "auto":
+            _cuda.prepare()
             providers = (["CUDAExecutionProvider", "CPUExecutionProvider"]
-                         if "CUDAExecutionProvider" in avail else ["CPUExecutionProvider"])
-        elif provider in ("cuda", "gpu"):
-            providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+                         if "CUDAExecutionProvider" in ort.get_available_providers()
+                         and _cuda.describe().get("dll_dir")
+                         else ["CPUExecutionProvider"])
         else:
-            providers = ["CPUExecutionProvider"]
+            providers = _cuda.providers_for(device)
 
         if not self.model_path.exists():
             log.warning("SCRFD model not found at %s. Detector disabled.", self.model_path)
@@ -102,6 +135,8 @@ class ScrfdFaceDetector:
             "type": "face_detector",
             "provider": self.provider,
             "input_size": self.input_size,
+            "license": "research/non-commercial only — NOT for deployment",
+            "classification": "CANDIDATE",
         }
 
     # ---- scored detection, used by the evaluation harness -----------------

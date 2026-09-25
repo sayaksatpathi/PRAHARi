@@ -60,7 +60,13 @@ This document tracks the provenance, licensing, and expected deployment characte
 - **Promotion gate (must all hold before SCRFD becomes the default):**
   1. **Weight licensing resolved.** The InsightFace pretrained weights are non-commercial/research-only. Promotion requires either (a) procurement/clearance of these weights for the intended deployment, or (b) retraining/replacing the weights with a commercially clear source.
   2. **Re-validate on any source change.** If the model file, weights, or export source changes, re-run `scripts/evaluate_widerface.py --detector scrfd` on the WIDER FACE val split and update the benchmark matrix before promoting.
-  3. **No GPU claim without measurement.** ORT CUDA EP did not load in the current environment (cuDNN 9.x missing); a GPU latency/FPS figure may only be stated after an actual CUDA-provider run.
+  3. **No GPU claim without measurement.** *(Update 2026-09-25: ORT's CUDA EP now
+     loads — `prahari.common.cuda` borrows the matching cuDNN 9 / CUDA 12 runtime
+     from an installed PyTorch, verified on an RTX 4050; SCRFD selects it via the
+     same helper. A GPU latency/FPS figure for SCRFD is therefore now measurable
+     via `scripts/evaluate_widerface.py --detector scrfd` on the GPU, and may be
+     stated once run. This does not change SCRFD's status — the binding blocker
+     is the weight licence (item 1), not GPU availability.)*
   > Until all three hold, promoting the research-only weights into the release default would be premature. For the SIH demo, present SCRFD as an *experimental candidate* alongside the measured Haar-vs-SCRFD comparison.
 
 ## 7. Face Detection — YuNet (DEPLOYABLE, resolves the licensing gate)

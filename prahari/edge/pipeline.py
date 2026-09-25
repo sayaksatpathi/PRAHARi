@@ -355,9 +355,11 @@ class CameraPipeline:
             from prahari.edge.profiling.certificate import Capability
             if Capability.FACE_DETECTION in allowed:
                 if getattr(self, "_face_detector", None) is None:
-                    from prahari.edge.detect.face import FaceDetector
-                    self._face_detector = FaceDetector()
-                
+                    # "auto" = deployable YuNet (Apache/MIT) when present, else the
+                    # Haar baseline. Never SCRFD (research-only weights).
+                    from prahari.edge.detect.face import build_face_detector
+                    self._face_detector = build_face_detector("auto")
+
                 self._faces = self._face_detector.detect(frame.image)
             else:
                 self._faces = []
