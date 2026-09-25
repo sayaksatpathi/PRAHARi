@@ -6,7 +6,7 @@ import io
 import subprocess
 import sys
 from pathlib import Path
-from prahari.common.models import Event, EvidenceLink
+from prahari.common.models import Event
 from datetime import datetime, timezone
 
 def test_verify_evidence_success(tmp_path):
