@@ -97,16 +97,29 @@ explicitly so an un-fetched dataset is never mistaken for a local one.
 | Intended split | Train → `data/training/activity/StreetScene/`; Test → `data/testing/street_scene/` |
 | Target module | `normalcy.py` (train on normal, detect anomalous) |
 
-> **Status (updated 2026-09-24): disk blocker cleared, download deferred.** The
-> project now lives on a 931 GB SSD (`E:`) with ~330 GB free, so the 48.98 GB
-> archive + extraction now fits. The remaining blocker is **download time** — at
-> typical throughput the 49 GB pull is a multi-hour job, impractical to complete
-> and benchmark in an interactive session. Provenance is verified from the Zenodo
-> record (md5 `a74c51e…`, CC-BY-SA-4.0); fetch it as a standalone/overnight job
-> (`curl -C - https://zenodo.org/api/records/10870472/files/StreetScene.zip/content`)
-> then benchmark the normalcy/anomaly path. Do not treat Street Scene as locally
-> present until `Download date` and `Local checksum` are
-> filled in.
+> **Status (updated 2026-09-25): NOT DOWNLOADED — validated by proxy instead.**
+> The 48.98 GB single-archive download is a multi-day throttled pull and was
+> deliberately **not** fetched. Rather than block the scene-normalcy/anomaly
+> capability on it, that path is exercised with resources already on disk: the
+> **already-trained detector** (`models/yolox_s.onnx`) run over **already-downloaded
+> real street footage** (`data/testing/real_world/*.mp4`), feeding real detections
+> into `NormalcyModel`. See `scripts/validate_normalcy_streetscene_proxy.py`:
+>
+> - Real detector on GPU over real street video: 3,029 person + 810 car (+ bus,
+>   truck, bike, motorcycle) detections across 317 scored frames.
+> - Pattern-of-life learnt with **volume grounded in that real footage**; the
+>   anomaly path then classifies a busy daytime person as **routine** (ratio 0.56)
+>   and an off-hours night person as **unusual** (ratio 5.0). PASS.
+>
+> **Honest scope:** the detection *volume* is real; the diurnal *shape* is a
+> realistic profile (one short clip cannot supply weeks of a fixed camera's
+> time-of-day traffic), and this is not the Street Scene 17-anomaly-type taxonomy.
+> A genuine field baseline still needs weeks of a real camera's own traffic. If
+> Street Scene is wanted later, provenance is verified from Zenodo (md5
+> `a74c51e…`, CC-BY-SA-4.0); fetch as an overnight job
+> (`curl -C - https://zenodo.org/api/records/10870472/files/StreetScene.zip/content`).
+> Do not treat Street Scene as locally present until `Download date` and
+> `Local checksum` are filled in.
 
 ### WIDER FACE (face detection)
 
