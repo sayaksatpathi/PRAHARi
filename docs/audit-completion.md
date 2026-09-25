@@ -34,11 +34,12 @@ not faked). Nothing here reports a fabricated field number.
 | 9 | ONVIF validation | Still open | **ADVANCED — onboarding validated** | mock-device + contract, `tests/test_onvif.py` |
 | 10 | Indian ANPR validation | Still open | **VERIFIED (demo evidence)** | Awiros high-conf Indian reads, `var/awiros_results.json`; field pending |
 | 11 | SCRFD licensing | Still open | **CLOSED in code** | YuNet default + SCRFD hard-gated, [scrfd-licensing.md](scrfd-licensing.md) |
-| 12 | Thermal/Re-ID validation | Still open | **OPEN — blocked; kit delivered** | [thermal-validation.md](thermal-validation.md) |
+| 12 | Thermal/Re-ID validation | Still open | **MEASURED (thermal det.) + stress-tested (Re-ID) + true harness ready** | thermal det. AP@0.5 **0.289** (prec 0.88/rec 0.27) on real LWIR; Re-ID 0.705→0.057 stress test; RegDB/KKWETC harnesses ready (gated) — [thermal-validation.md](thermal-validation.md) |
 | 13 | Operator testing | Still open | **PROTOCOL READY** | [operator-testing.md](operator-testing.md); needs 5–8 operators |
 
-**Summary: 7 closed/verified · 2 advanced (hardware-pending) · 1 protocol-ready ·
-3 open-blocked with kits delivered.** (Items 3/4/5 fold into the item-2 GPU run.)
+**Summary: 8 closed/verified · 3 advanced/measured (real generic data; gated or
+field data pending for the final step) · 1 protocol-ready · 1 open-blocked (field
+validation) with kit delivered.** (Items 3/4/5 fold into the item-2 GPU run.)
 
 ---
 
@@ -112,10 +113,15 @@ metrics and proposed acceptance criteria are built and run on real annotated
 footage today; the ask is one real border feed / pilot.
 [field-validation-kit.md](field-validation-kit.md).
 
-**12 — Thermal / cross-modal Re-ID.** Needs a paired visible↔thermal dataset
-(SYSU-MM01 / RegDB / KAIST / LLVIP). Detection and Re-ID harnesses are ready; a
-clearly-labelled thermal proxy gives a lower bound only.
-[thermal-validation.md](thermal-validation.md).
+**12 — Thermal / cross-modal Re-ID.** Now measured on real generic data (labelled
+non-Indian): **thermal person detection AP@0.5 0.289** (precision 0.88, recall
+0.27) on a real LWIR dataset (`benchmark_thermal_detection.py`) — partial transfer,
+most people missed: the quantified domain gap. Cross-modal Re-ID **stress-tested** (colour removed:
+0.705→0.057, `benchmark_crossmodal_reid.py`). The **true** RegDB visible↔thermal
+harness (`benchmark_regdb_vireid.py`) and the **India-specific KKWETC thermal-face**
+harness (`benchmark_kkwetc_thermal_face.py`) are built and validated but their
+datasets are research-gated (no open VI-ReID dataset exists; the free RegDB mirror
+is visible-only) — request-pending, per [thermal-validation.md](thermal-validation.md).
 
 ---
 
