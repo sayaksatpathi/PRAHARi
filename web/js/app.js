@@ -32,12 +32,21 @@ const App = (() => {
       console.error(e);
       el.innerHTML = `<div class="notice bad">Could not render this view: ${UI.esc(e.message)}</div>`;
     }
+    translateView(el);
   }
 
   function repaint() {
     const view = Views[currentView];
     if (view && typeof view.paint === 'function') {
       try { view.paint(state); } catch (e) { console.error(e); }
+    }
+    translateView(document.getElementById('view'));
+  }
+
+  // Views render in English; translate the subtree in place for non-English UIs.
+  function translateView(el) {
+    if (window.PrahariI18n && typeof PrahariI18n.translate === 'function') {
+      try { PrahariI18n.translate(el); } catch (e) { /* never break a render */ }
     }
   }
 
@@ -161,6 +170,9 @@ const App = (() => {
     document.addEventListener('prahari:unauthenticated', () =>
       showLogin('Your session has expired. Please sign in again.'));
     document.addEventListener('prahari:refresh', () => refresh());
+    // Re-render the current view when the operator switches language, so dynamic
+    // (template-literal) content is re-translated, not just the static shell.
+    document.addEventListener('prahari:langchange', () => go(currentView));
 
     setInterval(tickClock, 1000);
     tickClock();
