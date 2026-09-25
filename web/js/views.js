@@ -76,9 +76,9 @@ const Views = (() => {
             </div>` : ''}
           ${profiling && pg
             ? `<div class="tiny faint" style="margin-top:6px">
-                 Measuring optics; needs ${pg.ground_samples_required - pg.ground_samples} more
+                 Measuring optics; needs ${Math.max(0, pg.ground_samples_required - pg.ground_samples)} more
                  person observations to fit the ground plane
-                 (${pg.ground_samples}/${pg.ground_samples_required}).
+                 (${Math.min(pg.ground_samples, pg.ground_samples_required)}/${pg.ground_samples_required}).
                </div>`
             : `<div class="cam-caps">${caps}</div>`}
         </div>

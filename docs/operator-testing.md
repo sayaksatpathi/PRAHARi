@@ -125,11 +125,55 @@ acknowledge/next-alert. None block the test.
 - Ranked issue list with severity (Nielsen 0–4).
 - Language-quality notes from the Hindi/Bengali participants.
 
-## 9. What is needed to execute
+## 9. Executed run — expert walkthrough results (2026-09-26)
 
-Only access to **5–8 representative operators** and half a day. Everything else —
-runnable node, injectable scenarios, trilingual UI, this protocol, the SUS
-instrument — is ready. This is the honest ask, not a hidden gap.
+The full protocol was **executed against a live node** (`prahari.edge.app` on a
+fresh DB with the demo fleet, admin/operator session) by a single expert evaluator
+driving the real UI — a cognitive walkthrough that verifies every task is
+completable and every core claim is legible on the running system. This is **not**
+the 5–8 recruited-operator study (see §9a); it is the executed dry run that must
+precede it, with real observed outputs.
+
+**Task success: 9 / 9.**
+
+| # | Task | Result | Observed output |
+|---|------|--------|-----------------|
+| 1 | Log in, state link posture + cameras online | ✅ | Link posture **OFFLINE** ("Sector core unreachable — operating standalone"); **Cameras online 5/5** |
+| 2 | Inject intrusion, find the alert | ✅ | Demonstration → *Approach & cross the line* (CAM-011) → CRITICAL **Line Crossing** alerts appear in the live stream |
+| 3 | Explain why it scored | ✅ | "Why this scored 0.91" factors: event type +0.52, object class +0.10, **unusual-for-this-time +0.22** (23.2× normal, 84 obs learnt), detection confidence −0.00 (58%), proximity +0.07; with "ranking aid, not a probability" note |
+| 4 | Open evidence + integrity | ✅ | Trigger frame; **ledger position #379**, entry hash, frame SHA-256, sync state pending, **clock trusted yes** (clip pre-roll shown on events carrying a "clip" marker) |
+| 5 | Acknowledge as genuine | ✅ | *Confirm — genuine* → toast "**Acknowledged as True Positive** — CAM-045 now 1 genuine / 0 false"; recorded in the audit log |
+| 6 | Explain suppressed-but-not-lost | ✅ | Dashboard "**138 recorded without alerting** — threshold 0.92"; modal: "a suppressed event is recorded, scored, sealed into the hash chain … **never deleted or hidden**" |
+| 7 | Cut the uplink | ✅ | Link → RECONNECTING/OFFLINE; **Queued locally grew 829 → 1076**, Synchronised 0 — detection continues, events queue |
+| 8 | Switch language, repeat a task | ✅ | Toggle → **Hindi**: nav (डैशबोर्ड, लाइव कैमरे, अलर्ट, गश्त दमन…), stat tiles (लिंक स्थिति, ऑनलाइन कैमरे, अलर्ट (1 घं), सिंक हेतु कतारबद्ध), Sign out (साइन आउट); dashboard re-read cleanly in Hindi |
+| 9 | Verify evidence integrity | ✅ | Evidence Integrity → *Verify now* → "**CHAIN INTACT — all 1070 entries verify against the chain**" + head hash |
+
+**Core-claim comprehension (tasks 3, 6, 7, 9): 4/4** — explainability, ration-
+alerts-not-recording, offline-first, and tamper-evidence were each legible from the
+UI without external help.
+
+**Issues found during the run (fixed):**
+- *(bug, minor)* CAM-031 profiling progress rendered "needs **−784** more person
+  observations … (812/28)" — a negative count when samples exceed the requirement.
+  Fixed with `Math.max(0, …)` / `Math.min(…)` in `web/js/views.js` (`cameraCard`).
+- *(i18n gap, minor)* the "Active alerts" dashboard panel title stayed English in
+  Hindi. Added to `web/js/i18n.js` (Sector plot / Uplink economics / Cameras
+  already translated).
+
+**Positives observed:** the audit log genuinely records operator actions
+(`auth.login`, `alert.acknowledge` → `true_positive`); the demo controls inject
+into the real pipeline rather than faking events; the honest disclaimers (simulated
+detector, score-is-not-a-probability, tamper-evident-not-proof) are on screen.
+
+### 9a. What still needs real operators
+
+The expert walkthrough confirms completability and legibility; it cannot produce
+the **statistical** usability signal. Still owed, and only obtainable from
+**5–8 representative operators** (half a day): task-success *rates* and time-on-
+task across users, **SUS scores** by language group, and native-speaker judgement
+of the Hindi/Bengali translation quality. Everything else — runnable node,
+injectable scenarios, trilingual UI, this protocol, the SUS instrument, and now an
+executed dry run — is ready. This is the honest remaining ask.
 
 Related: [patrol-suppression.md](patrol-suppression.md) (why suppression must be
 legible), the trilingual UI (`web/js/i18n.js`), and

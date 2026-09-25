@@ -35,11 +35,12 @@ not faked). Nothing here reports a fabricated field number.
 | 10 | Indian ANPR validation | Still open | **VERIFIED (demo evidence)** | Awiros high-conf Indian reads, `var/awiros_results.json`; field pending |
 | 11 | SCRFD licensing | Still open | **CLOSED in code** | YuNet default + SCRFD hard-gated, [scrfd-licensing.md](scrfd-licensing.md) |
 | 12 | Thermal/Re-ID validation | Still open | **MEASURED (thermal det.) + stress-tested (Re-ID) + true harness ready** | thermal det. AP@0.5 **0.289** (prec 0.88/rec 0.27) on real LWIR; Re-ID 0.705→0.057 stress test; RegDB/KKWETC harnesses ready (gated) — [thermal-validation.md](thermal-validation.md) |
-| 13 | Operator testing | Still open | **PROTOCOL READY** | [operator-testing.md](operator-testing.md); needs 5–8 operators |
+| 13 | Operator testing | Still open | **EXECUTED — 9/9 tasks on the live app** | expert walkthrough on the running node; 2 minor UI bugs found & fixed; SUS/real-operator study remains — [operator-testing.md §9](operator-testing.md) |
 
 **Summary: 8 closed/verified · 3 advanced/measured (real generic data; gated or
-field data pending for the final step) · 1 protocol-ready · 1 open-blocked (field
-validation) with kit delivered.** (Items 3/4/5 fold into the item-2 GPU run.)
+field data pending for the final step) · 1 executed (operator walkthrough 9/9;
+statistical real-operator study still owed) · 1 open-blocked (field validation)
+with kit delivered.** (Items 3/4/5 fold into the item-2 GPU run.)
 
 ---
 
@@ -101,10 +102,15 @@ plate captures still pending (same class as item 1).
 
 ### Protocol ready
 
-**13 — Operator testing.** Complete usability/acceptance protocol delivered
-(9 task scenarios, SUS instrument, acceptance thresholds, Nielsen heuristic
-self-eval done now). Execution needs 5–8 representative operators, half a day.
-[operator-testing.md](operator-testing.md).
+**13 — Operator testing.** Protocol delivered **and executed** against the live
+node: all **9 task scenarios completed (9/9)** by an expert walkthrough on the
+running app — login/status, intrusion→alert, score derivation, evidence+integrity,
+acknowledge (audited), suppression legibility, uplink-cut resilience, Hindi UI, and
+chain verify (CHAIN INTACT, 1070 entries). Two minor UI issues were found and fixed
+in the run (a negative profiling count; one untranslated panel title). The
+remaining, honestly-scoped step is the **statistical** study — task-success rates,
+time-on-task and **SUS** from **5–8 real operators** (native Hindi/Bengali
+speakers). Full run write-up in [operator-testing.md §9](operator-testing.md).
 
 ### Open — blocked (kits delivered, honest ask)
 

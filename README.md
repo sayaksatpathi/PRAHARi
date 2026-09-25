@@ -455,7 +455,11 @@ A judge can understand Prahari from these pointers without reading the code.
 > scene-anomaly capability benchmarked to the **official Street Scene protocol**
 > (frame AUC 0.907 / RBDC 0.648 / TBDC 0.612 on UCSD Ped2) instead of the 49 GB
 > download ([docs/streetscene-benchmark.md](docs/streetscene-benchmark.md)).
-> Field/thermal/operator validation stay open by necessity, each with a
+> Thermal detection is now measured on real LWIR (AP@0.5 0.29) and cross-modal
+> Re-ID stress-tested, with the true RegDB harness ready
+> ([docs/thermal-validation.md](docs/thermal-validation.md)); operator testing was
+> executed on the live app (9/9 tasks, [docs/operator-testing.md](docs/operator-testing.md)).
+> Only real border **field** validation stays open by necessity — with a
 > ready-to-run kit.
 
 - **Problem** — extract intelligence from *existing* border CCTV, edge-first,
