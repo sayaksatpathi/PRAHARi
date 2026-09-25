@@ -50,10 +50,19 @@ def contract_check() -> dict[str, Any]:
     return {"contract_valid": ok, "wsdl_dir": str(wsdl_path), "operations": found}
 
 
-def probe(host: str, port: int = 80, user: str = "", passwd: str = "") -> dict[str, Any]:
-    """Live ONVIF onboarding against a real device (device info + RTSP URI)."""
-    from onvif import ONVIFCamera
-    cam = ONVIFCamera(host, port, user, passwd)
+def probe(host: str, port: int = 80, user: str = "", passwd: str = "",
+          camera_factory: Any = None) -> dict[str, Any]:
+    """ONVIF onboarding: device info + profiles + RTSP stream URIs.
+
+    Runs the real onboarding sequence a physical camera answers. ``camera_factory``
+    is an injectable seam ``(host, port, user, passwd) -> ONVIFCamera-like`` so the
+    exact same flow can be validated against a mock device without hardware (see
+    ``tests/test_onvif.py``); it defaults to the real ``onvif.ONVIFCamera``.
+    """
+    if camera_factory is None:
+        from onvif import ONVIFCamera
+        camera_factory = ONVIFCamera
+    cam = camera_factory(host, port, user, passwd)
     info = cam.devicemgmt.GetDeviceInformation()
     media = cam.create_media_service()
     profiles = media.GetProfiles()
