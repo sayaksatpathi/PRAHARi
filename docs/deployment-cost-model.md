@@ -14,11 +14,33 @@ and integration — not a rip-and-replace.
 One **edge node** serves a cluster of existing cameras at a Border Out-Post (BOP)
 or checkpost. Sizing comes from the measured per-stream cost.
 
-**Measured basis:** 12.6 fps per stream on CPU (MOT17). On a modern edge
-accelerator (Jetson Orin NX class), the same ONNX pipeline is expected to run
-several streams in real time — *this multiplier is unvalidated (see #12 GPU
-benchmark) and must be measured before costing is final.* Conservative planning
-assumption: **1 edge node per 4–6 cameras.**
+**Measured basis (CPU):** 12.6 fps per stream on CPU (MOT17).
+
+**Measured basis (GPU, production ONNX-CUDA path).** The cameras-per-node
+multiplier is no longer a guess. Measured on an RTX 4050 Laptop GPU (6 GB) with
+the *production* runtime — ONNX Runtime `CUDAExecutionProvider`, single stream,
+batch 1 — via `scripts/benchmark_gpu_detectors.py`:
+
+| Detector | Input | Throughput | VRAM |
+|----------|-------|-----------|------|
+| YOLOX-Tiny | 416 | **~190 fps** | small |
+| YOLOX-S (production) | 640 | **~104 fps** | ~0.15 GB |
+| YOLOv8s (MOT-tuned) | 640 | **~124 fps** | ~0.15 GB |
+| YOLOv8m (accuracy config) | 1280 | **~13 fps** | ~1.0 GB |
+
+Deriving cameras-per-node from the production detector (YOLOX-S, ~104 fps): with
+`PRAHARI_INFERENCE_INTERVAL=2` on a 12–15 fps sub-stream, each camera needs
+~6–8 detections/s, so the detector alone serves ~13 streams; derating ~40% for
+the rest of the pipeline (per-frame tracking, rules, evidence, decode) gives a
+grounded planning figure of **~5–8 cameras per edge node** — the upper half of
+the previous conservative 4–6, on a *laptop* GPU. A Jetson Orin NX 16 GB or an
+edge mini-PC with an entry discrete GPU should meet or exceed this.
+
+*Honest caveat unchanged in kind:* this is measured on an RTX 4050 as a proxy,
+not on the target edge accelerator, and it is pure detector throughput (an upper
+bound). Re-measure on the chosen accelerator with the full pipeline before any
+procurement decision. What has changed is that the multiplier now rests on a
+reproducible measurement of the production runtime, not an expectation.
 
 ## 2. Per-site edge BOM (serves ~4–6 existing cameras)
 
@@ -67,9 +89,11 @@ pool (~5% of edge nodes).
 
 ## 5. Cost drivers & sensitivities
 
-- **Cameras/node ratio** is the dominant lever. If a real GPU benchmark shows
-  8 cameras/node instead of 5, edge capex drops ~35%. **This is why #12 (GPU
-  benchmark) is the highest-value technical fix.**
+- **Cameras/node ratio** is the dominant lever, and it is now measured rather
+  than assumed (§1): the production detector sustains ~104 fps on a laptop GPU,
+  supporting ~5–8 cameras/node. At the 8 end, edge capex drops ~35% versus the
+  old conservative 5. Confirming this on the target accelerator with the full
+  pipeline is the remaining highest-value cost measurement.
 - **Storage retention policy** drives SSD size (evidence hash-chain + clips).
 - **Remote power** (solar/UPS) dominates for off-grid BOPs.
 - **No per-camera license or cloud fee** — the recurring cost is power, link, and
@@ -88,8 +112,10 @@ pool (~5% of edge nodes).
 
 - **Every ₹ figure is a planning estimate, not a quote.** Real BOM needs vendor
   pricing and MHA/SSB procurement rules.
-- **Cameras-per-node is unvalidated** until the real-time GPU benchmark (#12) and
-  a real multi-stream test are done. The whole per-camera cost hinges on it.
+- **Cameras-per-node** is now grounded in a measured single-stream GPU benchmark
+  (~104 fps, YOLOX-S, ORT-CUDA on an RTX 4050 — §1), but a real *multi-stream*
+  test on the *target* accelerator with the full pipeline is still owed. The
+  per-camera cost hinges on this final confirmation.
 - **No real site survey** — power, connectivity, and mounting realities at actual
   BOPs will move these numbers.
 - Costs assume the existing CCTV is serviceable; cameras too degraded to certify
