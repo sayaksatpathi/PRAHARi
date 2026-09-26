@@ -74,19 +74,11 @@ def build_detector(settings: Settings) -> Detector:
             return SyntheticDetector(seed=settings.demo_seed,
                                      confidence_floor=settings.detection_confidence)
         
-        # Model integrity check
-        manifest_path = model_path.parent / "manifest.json"
-        if manifest_path.exists():
-            import json
-            import hashlib
-            with manifest_path.open() as f:
-                manifest = json.load(f)
-            expected_hash = manifest.get(model_path.name)
-            if expected_hash:
-                actual_hash = hashlib.sha256(model_path.read_bytes()).hexdigest()
-                if actual_hash != expected_hash:
-                    raise ValueError(f"Model integrity failed: {model_path.name} hash mismatch.")
-        
+        # Supply-chain integrity: verify the model's SHA-256 against the signed
+        # manifest before loading it (see prahari/edge/manifest.py).
+        from prahari.edge import manifest as _manifest
+        _manifest.verify_model(model_path, _manifest.load_manifest(model_path.parent))
+
         try:
             from prahari.edge.detect.onnx_yolo import OnnxYoloDetector
 
@@ -159,3 +151,41 @@ def build_source(camera: Camera, settings: Settings) -> VideoSource:
         )
 
     raise ValueError(f"unsupported source kind: {kind}")
+
+
+class EdgeFactory:
+    """Loads models with manifest integrity verification before use.
+
+    A thin, explicit gate over model loading so a swapped weights file is refused
+    rather than silently trusted. Reads ``manifest.json`` from ``model_dir`` and
+    verifies each model's SHA-256 (and, when a key is configured, the manifest's
+    HMAC signature) before constructing anything. See prahari/edge/manifest.py.
+    """
+
+    def __init__(self, model_dir, *, strict: bool = False,
+                 require_signature: bool = False, key: str | None = None) -> None:
+        from prahari.edge import manifest as _manifest
+        self._m = _manifest
+        self.model_dir = Path(model_dir)
+        self.strict = strict
+        self.manifest = _manifest.load_manifest(self.model_dir)
+        if require_signature and not _manifest.verify_signature(self.manifest, key):
+            raise ValueError("Model integrity failed: manifest signature is missing "
+                             "or invalid")
+
+    def verify(self, model_path) -> None:
+        """Raise ValueError('Model integrity failed: ...') on a hash mismatch."""
+        self._m.verify_model(model_path, self.manifest, strict=self.strict)
+
+    def detector(self, model_path):
+        """Verify a detector model's integrity, then build it. Raises on mismatch."""
+        self.verify(model_path)
+        from prahari.edge.detect.onnx_yolo import OnnxYoloDetector
+        from prahari.common.config import get_settings
+        s = get_settings()
+        return OnnxYoloDetector(
+            model_path=Path(model_path),
+            device=getattr(s, "device", "auto"),
+            conf_threshold=getattr(s, "detection_confidence", 0.35),
+            cuda_dll_dir=getattr(s, "cuda_dll_dir", None),
+        )
