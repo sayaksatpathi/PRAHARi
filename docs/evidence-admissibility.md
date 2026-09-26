@@ -48,10 +48,13 @@ Electronic-record admissibility in India is governed by:
 
 ## 4. Concrete next steps (what would make this court-ready)
 
-1. **Certificate generator** — a `scripts/evidence_certificate.py` that emits a
-   BSA §63(4)/§65B(4)-shaped certificate populated from the ledger (device identity,
-   period, hash-chain head, per-item hashes) for an authorised signatory. *Code
-   task, ready to build on request.*
+1. **Certificate generator** — **BUILT.** `scripts/evidence_certificate.py` emits a
+   BSA §63(4)/§65B(4)-shaped certificate populated from the ledger — device identity,
+   period covered, verified hash-chain head, and a per-record SHA-256 table — with a
+   blank attestation block for an authorised signatory to complete and sign. Verified
+   on a live ledger (796 records, chain valid). It fills the mechanical parts only;
+   the human attestation and the admissibility determination remain with the
+   signatory and the court. Run: `python scripts/evidence_certificate.py`.
 2. **Hardware-backed keys + core countersignature** — moves tamper-evident →
    tamper-resistant (roadmap; [security-validation.md](security-validation.md)).
 3. **Trusted time source** at deployment (NTP/GNSS) and record it per event.
