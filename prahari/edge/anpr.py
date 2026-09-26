@@ -35,6 +35,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -234,6 +235,163 @@ class FastAlprReader(PlateReader):
                 f"plate is {width:.0f} px wide, below the {MIN_PLATE_WIDTH_PX} px "
                 f"needed for a dependable read; treat as indicative only"),
         )
+
+
+# PP-OCRv5 server-rec (SVTR_HGNet) architecture the Awiros weights were trained
+# with. Mirrors models/awiros_anpr/test.py so the same weights load identically.
+_AWIROS_MODEL_CONFIG = {
+    "model_type": "rec",
+    "algorithm": "SVTR_HGNet",
+    "Transform": None,
+    "Backbone": {"name": "PPHGNetV2_B4", "text_rec": True},
+    "Head": {
+        "name": "MultiHead",
+        "out_channels_list": {"CTCLabelDecode": 64, "NRTRLabelDecode": 67},
+        "head_list": [
+            {"CTCHead": {"Neck": {"name": "svtr", "dims": 120, "depth": 2,
+                                  "hidden_dims": 120, "kernel_size": [1, 3],
+                                  "use_guide": True},
+                        "Head": {"fc_decay": 1e-05}}},
+            {"NRTRHead": {"nrtr_dim": 384, "max_text_length": 25}},
+        ],
+    },
+}
+_AWIROS_IMG_SHAPE = (3, 48, 320)
+
+
+class AwirosPlateReader(PlateReader):
+    """Indian-specialist plate reader: fast-alpr detection + Awiros PP-OCRv5 OCR.
+
+    fast-alpr locates the plate reliably, but its global OCR misreads Indian
+    plates (state-code confusions, dropped glyphs). The Awiros SVTR_HGNet
+    recognizer (PP-OCRv5, Apache-2.0, 98.42% on a 558k Indian-plate corpus) reads
+    the characters far more accurately. So the plate box is fast-alpr's; the text
+    and its confidence are Awiros'. Heavy to load (Paddle + the PaddleOCR repo),
+    so it is built once per source kind and only when a camera earns ANPR.
+    """
+
+    name = "awiros-ppocrv5 (Indian ANPR)"
+    _MODEL_DIR = Path(__file__).resolve().parents[2] / "models" / "awiros_anpr"
+
+    def __init__(self, device: str = "cuda") -> None:
+        from fast_alpr import ALPR  # detector only
+
+        self._alpr = ALPR(
+            detector_model="yolo-v9-t-384-license-plate-end2end",
+            ocr_model="global-plates-mobile-vit-v2-model",
+        )
+        self._load_ocr(device)
+
+    def _load_ocr(self, device: str) -> None:
+        import copy
+        import sys
+
+        root = self._MODEL_DIR
+        repo = str(root / "PaddleOCR")
+        if repo not in sys.path:
+            sys.path.insert(0, repo)
+        import paddle
+        from ppocr.modeling.architectures import build_model
+        from ppocr.postprocess import build_post_process
+        from safetensors.numpy import load_file
+
+        self._paddle = paddle
+        use_gpu = str(device).startswith("cuda") and paddle.is_compiled_with_cuda()
+        paddle.set_device("gpu" if use_gpu else "cpu")
+        self._post = build_post_process({
+            "name": "CTCLabelDecode",
+            "character_dict_path": str(root / "en_dict.txt"),
+            "use_space_char": True,
+        })
+        self._model = build_model(copy.deepcopy(_AWIROS_MODEL_CONFIG))
+        self._model.eval()
+        state = {k: paddle.to_tensor(v)
+                 for k, v in load_file(str(root / "model.safetensors")).items()}
+        self._model.set_state_dict(state)
+        log.info("ANPR OCR: Awiros PP-OCRv5 loaded on %s", paddle.get_device())
+
+    def _ocr(self, plate_bgr: np.ndarray) -> tuple[str, float]:
+        import cv2
+
+        _, th, tw = _AWIROS_IMG_SHAPE
+        ih, iw = plate_bgr.shape[:2]
+        if ih < 4 or iw < 4:
+            return "", 0.0
+        nw = min(int(iw * (th / ih)), tw)
+        resized = cv2.resize(plate_bgr, (max(1, nw), th))
+        if nw < tw:
+            pad = np.zeros((th, tw, 3), dtype=np.uint8)
+            pad[:, :nw, :] = resized
+            resized = pad
+        x = ((resized.astype(np.float32) / 255.0 - 0.5) / 0.5).transpose(2, 0, 1)
+        t = self._paddle.to_tensor(np.expand_dims(x, 0))
+        with self._paddle.no_grad():
+            preds = self._model(t)
+        if isinstance(preds, dict):
+            pt = preds.get("ctc", next(iter(preds.values())))
+        elif isinstance(preds, (list, tuple)):
+            pt = preds[0]
+        else:
+            pt = preds
+        res = self._post(pt.numpy())
+        if res:
+            return str(res[0][0]).strip().upper(), float(res[0][1])
+        return "", 0.0
+
+    def read(self, image: np.ndarray, vehicle: BBox,
+             context: dict[str, Any] | None = None) -> PlateRead | None:
+        h, w = image.shape[:2]
+        x1 = int(max(0, vehicle.x1)); y1 = int(max(0, vehicle.y1))
+        x2 = int(min(w, vehicle.x2)); y2 = int(min(h, vehicle.y2))
+        if x2 - x1 < 16 or y2 - y1 < 16:
+            return None
+        crop = image[y1:y2, x1:x2]
+        try:
+            results = self._alpr.predict(crop)
+        except Exception:
+            log.exception("awiros: plate detection failed")
+            return None
+        if not results:
+            return None
+
+        best = max(results, key=lambda r: _conf_scalar(getattr(
+            getattr(r, "detection", None), "confidence", 0.0)))
+        det = getattr(best, "detection", None)
+        box = getattr(det, "bounding_box", None)
+        if box is None:
+            return None
+        bx1 = int(max(0, getattr(box, "x1", 0))); by1 = int(max(0, getattr(box, "y1", 0)))
+        bx2 = int(min(crop.shape[1], getattr(box, "x2", 0)))
+        by2 = int(min(crop.shape[0], getattr(box, "y2", 0)))
+        if bx2 - bx1 < 8 or by2 - by1 < 4:
+            return None
+
+        text, conf = self._ocr(crop[by1:by2, bx1:bx2])
+        if not text:
+            return None
+
+        plate_box = BBox(x1=float(bx1 + x1), y1=float(by1 + y1),
+                         x2=float(bx2 + x1), y2=float(by2 + y1))
+        normalised, valid = normalise_plate(text)
+        width = plate_box.width
+        return PlateRead(
+            text=text,
+            text_normalised=normalised,
+            ocr_confidence=conf,
+            detection_confidence=_conf_scalar(getattr(det, "confidence", 0.0)),
+            plate_bbox=plate_box,
+            plate_width_px=width,
+            above_threshold=width >= MIN_PLATE_WIDTH_PX,
+            format_valid=valid,
+            backend=self.name,
+            note="" if width >= MIN_PLATE_WIDTH_PX else (
+                f"plate is {width:.0f} px wide, below the {MIN_PLATE_WIDTH_PX} px "
+                f"needed for a dependable read; treat as indicative only"),
+        )
+
+    def describe(self) -> dict[str, Any]:
+        return {"name": self.name, "simulated": False,
+                "ocr": "awiros-ppocrv5", "detector": "fast-alpr-yolov9"}
 
 
 class SyntheticPlateReader(PlateReader):
@@ -473,6 +631,18 @@ def build_plate_reader(settings, *, simulated_source: bool) -> PlateReader | Non
                  "plate model finds nothing in synthetic imagery, so preferring "
                  "it here would leave the analytic silently dead.")
         return SyntheticPlateReader(seed=settings.demo_seed)
+
+    # Real imagery. Prefer the Indian-specialist Awiros PP-OCRv5 recognizer (far
+    # more accurate on Indian plates than the global OCR); fall back to fast-alpr
+    # if Paddle / the PaddleOCR repo / the weights are unavailable.
+    if choice in ("auto", "awiros"):
+        try:
+            return AwirosPlateReader(device=settings.device)
+        except Exception as exc:
+            if choice == "awiros":
+                raise
+            log.warning("ANPR: Awiros PP-OCRv5 unavailable (%s) - falling back to "
+                        "fast-alpr's global OCR.", exc)
 
     try:
         return FastAlprReader(device=settings.device)
