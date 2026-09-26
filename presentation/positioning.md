@@ -1,74 +1,85 @@
-# Prahari — Positioning & Pitch Structure
+# Prahari — Positioning & Pitch Structure (Blockchain & Cybersecurity)
 
-Fixes two judge critiques: **"novelty is just integration"** (#5) and **"honesty
-backfires in a fast round"** (#17). The answer to both is the same: **lead with the
-architecture as the contribution, and land the story before the caveats.**
+Theme: **Blockchain & Cybersecurity**. Judges evaluate the *evidence-integrity and
+security* contribution first; the AI/CV pipeline is the application that generates
+the evidence. So lead with the ledger and the security posture — not with detection.
 
 ## The one sentence (say this first, memorise it)
 
-> "Detection and tracking are solved — we didn't reinvent them. Prahari's
-> contribution is the **deployment architecture** that makes them work on India's
-> *open* borders using *existing* CCTV: it **measures what each degraded camera can
-> actually do**, applies **pattern-of-life instead of useless tripwires**, and
-> produces **tamper-evident evidence that survives an offline uplink**."
+> "Prahari turns existing border CCTV into a **cryptographically verifiable
+> chain of custody**: every event is sealed into a **two-tier, countersigned
+> hash-ledger** — the edge node writes, the sector core notarizes with a key the
+> node never holds — so surveillance evidence is **tamper-resistant and admissible
+> under BSA §65B**, even after a three-day uplink outage at a remote outpost."
 
-That triple — *measured capability + open-border doctrine + offline evidence
-integrity* — is the invention. No commercial VMS packages it for the Indian
-open-border reality.
+That is the invention for this theme: **a distributed, tamper-resistant evidence
+ledger hardened for a hostile edge**. The computer vision is *how the evidence is
+produced*; the blockchain + cybersecurity is *what makes it trustworthy in court*.
 
-## Why "integration" is the wrong dismissal
+## Why this is a Blockchain & Cybersecurity project, not a CV one
 
-The novel unit is not a model; it is the **decision architecture** around the
-models. Three things nobody ships together:
+The novel unit is the **integrity architecture** around the sensors. What nobody
+ships together for border surveillance:
 
-1. **Measured, not declared, camera capability.** Most systems ask an operator
-   what a camera can do. Prahari *measures* effective resolution, delivered fps,
-   noise, compression damage, and recovers the ground plane from pedestrians —
-   then grants analytics per image region against IEC 62676-4 DORI bands.
-   *(Verified: mounting-height recovery within 0.4–3.2% on the live pipeline.)*
-2. **Two doctrines, per camera.** Fenced sectors run tripwire rules; open borders
-   (Indo-Nepal/Bhutan, lawful daily traffic) run pattern-of-life against a lawful
-   route — because a tripwire there fires thousands of times a day and trains the
-   operator to ignore it. *(Measured: NormalcyModel drops the lawful-traffic
-   false-alert load 34 → 0 while every anomaly still alerts.)*
-3. **Evidence that outlives the network.** Append-only SHA-256 hash chain,
-   independently verifiable, queued locally through an uplink outage and
-   synchronised intact on reconnect. *(Measured: 6/6 evidence-chain PASS, outage
-   recovery PASS.)*
+1. **Two-tier permissioned ledger (edge writes → core notarizes).** Each node keeps
+   an append-only SHA-256 hash chain; the sector core **countersigns** each node's
+   chain head under a secret no node holds and remembers the hash it witnessed.
+   Because every entry commits to its predecessor, any rewrite of witnessed history
+   changes the head hash and is detected — an insider who re-stamps the whole chain
+   is *caught*, not trusted. *(Measured: `tests/security/test_countersign.py` — the
+   flagship case is a rewrite the edge chain passes and the notary catches. Edge
+   chain 6/6 PASS; notary rewrite-detection PASS.)*
+2. **Defence-in-depth for a physically reachable node.** Signed model manifest
+   (SHA-256 + HMAC — supply-chain integrity before load); scrypt + HMAC-signed
+   expiring tokens + RBAC; **login brute-force lockout**; per-camera sensor-tamper
+   detection (spray/blackout/replay). A full **STRIDE threat model**
+   ([`../docs/threat-model.md`](../docs/threat-model.md)) marks every control
+   Built / Partial / Planned. *(Measured: security suite green — countersign, auth,
+   throttle, manifest, evidence-integrity, mTLS-sync, websocket-auth.)*
+3. **Integrity that outlives the network.** Idempotent, store-and-forward sync
+   keyed on the edge's own event id: a half-delivered batch after a link drop is a
+   non-event, not data loss, and the chain synchronises intact. *(Measured:
+   offline-sync idempotency PASS; outage recovery PASS.)*
 
-Any one of these is a feature. **Together, aimed at open-border reality, they are
-the product.**
+The AI application on top — measured per-camera capability, open-border
+pattern-of-life instead of tripwires, cross-camera Re-ID — is real and strong, but
+it is the *source* of the evidence, and it belongs after the integrity story.
 
-## Story-led 7-minute structure (do NOT open with caveats)
+## The honest line on "is this really blockchain?"
 
-1. **0:00 — The problem, sharply (45s).** Open border, lawful traffic, alert
-   fatigue kills deployments. "Crossing a line is not an intrusion here."
-2. **0:45 — The one sentence (15s).** The triple above.
-3. **1:00 — Live demo, the arc (3:30).** Normal open-border movement → *suppressed*.
-   Patrol deviation → *escalated*. Night movement → *alert*. Open the alert →
-   *clip + hash verification*. Cut the network → *local queue*. Restore → *sync,
-   integrity intact*. This is the emotional core — let it breathe.
-4. **4:30 — Two measured proofs (1:00).** "34 → 0 false alerts with pattern-of-life."
-   "Evidence hash chain verified independently." One number each, said with
-   confidence.
-5. **5:30 — What's real, what's next (1:00).** *Now* the honesty — but framed as a
-   **roadmap, not an apology**: "Everything you saw is reproducible. We've been
-   deliberate about not overclaiming: this is validated in simulation and on real
-   footage; the next step is one real SSB feed and a field pilot." Name the gaps
-   as your plan.
-6. **6:30 — The ask (30s).** One real border feed / a pilot site. That is the only
-   thing standing between this and field validation.
+Say it before a judge asks: **"It's a permissioned, two-tier distributed ledger —
+hash-linked, append-only, countersigned by an independent core. It is not a
+public proof-of-work chain, and it shouldn't be: border evidence must stay inside
+government custody, not on a public network. The property that matters — no party,
+including a node holding its own key, can rewrite witnessed history undetected — is
+achieved and tested."** Then name the next hardening step (asymmetric/HSM core
+signing, external anchoring of checkpoint heads) as roadmap, not apology.
 
-## Turning honesty into an asset (not a liability)
+## Story-led 7-minute structure (lead with integrity)
 
-- **Frame caveats as a roadmap slide, near the end** — not scattered through the
-  pitch. "Here's exactly what we haven't proven yet, and the shortest path to
-  proving it." Judges trust a team that knows its own holes.
-- **Lead every metric with the win, then the caveat** — "5× better face detection,
-  Apache-licensed and deployable — measured on the validation split." Not
-  "val-only, VOC-style, not the official protocol… oh and it's 5× better."
-- **Never volunteer a weak number without its context.** Haar's 0.121 only appears
-  as the *before* in a 0.121 → 0.626 improvement story, never on its own.
-- **The honesty is the differentiator against polished-but-hollow teams.** Say it:
-  "You've seen 120 demos today. Ours is the one where every number reproduces from
-  a script and every limitation is written down."
+1. **0:00 — The problem (45s).** Border evidence is only as good as its custody. A
+   painted-over camera reports "all clear"; a tampered clip is worthless in court.
+2. **0:45 — The one sentence (15s).** The chain-of-custody line above.
+3. **1:00 — Live demo, the arc (3:30).** An event fires → clip sealed into the
+   chain. **Verify → CHAIN INTACT.** Core witnesses it → **COUNTERSIGNED (Evidence
+   Integrity view).** Now the attack: rewrite a past event so the edge chain *still*
+   says intact → the notary says **REWRITE DETECTED.** Then cut the network → local
+   queue; restore → sync, integrity intact. Close on the §65B certificate.
+4. **4:30 — Two measured proofs (1:00).** "A full-chain rewrite the edge misses, the
+   core catches — tested." "Evidence admissible under BSA §65B, certificate
+   generated from the ledger." One number each, said with confidence.
+5. **5:30 — Security posture (1:00).** The STRIDE slide: what's Built (countersign,
+   signed models, auth + lockout, tamper detection), what's Partial/Planned (mTLS,
+   HSM, anchoring). Honesty framed as a roadmap.
+6. **6:30 — The ask (30s).** One real SSB/CIBMS feed and a pilot site to field-validate.
+
+## Turning honesty into an asset
+
+- **Frame Partial/Planned as a roadmap slide, near the end** — the STRIDE table does
+  this for you. Judges trust a team that draws the line exactly where the code does.
+- **Lead every claim with the win, then the caveat** — "tamper-resistant via core
+  countersigning, tested; the next step is HSM-backed asymmetric signing." Not the
+  caveat first.
+- **The differentiator against polished-but-hollow teams:** "Every number reproduces
+  from a script, every limitation is in the threat model, and the rewrite attack is
+  in the test suite — run it."
