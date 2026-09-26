@@ -14,3 +14,16 @@
 32665222 https://videos.pexels.com/video-files/32665222/13926706_1280_720_24fps.mp4
 32665228 https://videos.pexels.com/video-files/32665228/13926762_1280_720_24fps.mp4
 39432101 https://videos.pexels.com/video-files/39432101/16792186_1280_720_60fps.mp4
+
+# High-res close-vehicle clips for CAM-011 (ANPR / readable Indian plates):
+hd_16177622 https://videos.pexels.com/video-files/16177622/16177622-hd_1920_1080_25fps.mp4
+hd_20779210 https://videos.pexels.com/video-files/20779210/20779210-hd_1920_1080_30fps.mp4
+hd_28925595 https://videos.pexels.com/video-files/28925595/12518849_1920_1080_60fps.mp4
+hd_30263129 https://videos.pexels.com/video-files/30263129/12973808_1920_1080_30fps.mp4
+hd_30350783 https://videos.pexels.com/video-files/30350783/13009508_1920_1080_30fps.mp4
+hd_30608729 https://videos.pexels.com/video-files/30608729/13105328_1920_1080_30fps.mp4
+hd_30608914 https://videos.pexels.com/video-files/30608914/13105474_1920_1080_30fps.mp4
+hd_30609021 https://videos.pexels.com/video-files/30609021/13105510_1920_1080_30fps.mp4
+hd_31048534 https://videos.pexels.com/video-files/31048534/13270131_1920_1080_30fps.mp4
+hd_34394876 https://videos.pexels.com/video-files/34394876/14571064_1920_1080_60fps.mp4
+hd_34394881 https://videos.pexels.com/video-files/34394881/14571054_1920_1080_60fps.mp4

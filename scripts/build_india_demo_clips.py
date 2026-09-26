@@ -23,8 +23,12 @@ OUT_FPS = 25
 
 # camera -> (ordered source ids, style, output size)
 PLAN = {
-    "CAM-011": (["30381745", "30722588", "26727332", "14063901", "32665228"],
-                "normal", (960, 540)),   # main gate: vehicles + people
+    # Main gate / vehicle lane: built at full 1080p from close-vehicle clips with
+    # readable Indian plates, so the capability certificate clears the 250 px/m
+    # ANPR (identify) threshold and plates actually read. The other cameras stay
+    # 960/640 — they do not need plate-reading scale.
+    "CAM-011": (["hd_34394876", "hd_34394881", "hd_16177622", "hd_30263129"],
+                "normal", (1920, 1080)),  # main gate: close vehicles + Indian plates
     "CAM-014": (["29614662", "29214416", "29614667", "29614735"],
                 "normal", (960, 540)),   # perimeter: pedestrian flow
     "CAM-022": (["32665228", "32665222", "2843866", "30722588"],
