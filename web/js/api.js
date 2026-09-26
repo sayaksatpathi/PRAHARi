@@ -124,6 +124,7 @@ const API = (() => {
 
     status:      () => request('/api/system/status'),
     bandwidth:   () => request('/api/system/bandwidth'),
+    snapshotUrl: (id) => `/api/cameras/${encodeURIComponent(id)}/snapshot`,
     verifyChain: () => request('/api/system/ledger/verify'),
     verifyNotary: () => request('/api/system/ledger/notary'),
     demoLedgerRewrite: () => request('/api/system/demo/ledger-rewrite', { method: 'POST' }),

@@ -32,6 +32,7 @@ from prahari.common.db import Database
 from prahari.common.models import (
     Camera,
     Capability,
+    EventType,
     LinkMode,
     PatrolProfile,
     Priority,
@@ -750,6 +751,27 @@ async def camera_stream(camera_id: str):
         frames(),
         media_type="multipart/x-mixed-replace; boundary=prahariframe",
     )
+
+
+@app.get("/api/cameras/{camera_id}/snapshot", tags=["cameras"])
+async def camera_snapshot(camera_id: str):
+    """Single latest annotated frame as a JPEG.
+
+    The dashboard grid polls this instead of holding a persistent MJPEG stream
+    per camera: a browser allows only ~6 connections per host, and five live
+    MJPEG streams plus the websocket starve the later tiles. Short snapshot
+    requests reuse keep-alive connections, so every tile updates.
+    """
+    from fastapi import Response
+
+    pipeline = runtime.pipelines.get(camera_id)
+    if pipeline is None:
+        raise HTTPException(status_code=404, detail="camera is not running")
+    jpeg = pipeline.latest_jpeg
+    if not jpeg:
+        raise HTTPException(status_code=503, detail="no frame yet")
+    return Response(content=jpeg, media_type="image/jpeg",
+                    headers={"Cache-Control": "no-store"})
 
 
 # =====================================================================

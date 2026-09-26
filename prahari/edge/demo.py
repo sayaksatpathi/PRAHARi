@@ -43,18 +43,20 @@ from prahari.edge.sources.simulator import SimulatedCamera
 
 log = logging.getLogger("prahari.demo")
 
-# Real footage for the live-camera demo. Each clip is looped by StreamSource, and
-# the real ONNX detector runs on it, so the dashboard shows genuine detections and
-# tracks on real video rather than a synthetic scene. Falls back to the simulator
-# per camera if a clip is missing, so the demo never hard-fails on a fresh clone.
+# Real Indian street footage for the live-camera demo (CC0 Pexels clips of Indian
+# traffic/crowds, stitched into >=2-minute per-camera compilations by
+# scripts/build_india_demo_clips.py). Each is looped by StreamSource and the real
+# ONNX detector runs on it, so the dashboard shows genuine detections and tracks
+# on real Indian video. Falls back to the simulator per camera if a clip is
+# missing, so the demo never hard-fails on a fresh clone.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_REAL_CLIPS = _REPO_ROOT / "data" / "testing" / "real_world"
+_REAL_CLIPS = _REPO_ROOT / "data" / "demo" / "india"
 _CAM_CLIPS = {
-    "CAM-011": "pexels_13258882_people_cars_street.mp4",   # gate: people + vehicles
-    "CAM-014": "pexels_8126410_pedestrian_crossing.mp4",   # perimeter: pedestrians
-    "CAM-022": "pexels_3552510_street_people_walking.mp4",  # open-border approach
-    "CAM-031": "pexels_3700915_subway_pedestrians.mp4",    # dense pedestrian flow
-    "CAM-045": "pexels_8126410_pedestrian_crossing.mp4",   # legacy south track
+    "CAM-011": "CAM-011.mp4",   # main gate: Indian traffic + pedestrians
+    "CAM-014": "CAM-014.mp4",   # perimeter: dense pedestrian flow
+    "CAM-022": "CAM-022.mp4",   # open-border approach: mixed traffic
+    "CAM-031": "CAM-031.mp4",   # ridge thermal (thermal colormap)
+    "CAM-045": "CAM-045.mp4",   # legacy analogue south track (degraded look)
 }
 
 

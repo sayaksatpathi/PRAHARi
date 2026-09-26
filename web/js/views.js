@@ -49,8 +49,7 @@ const Views = (() => {
       <div class="cam-card" data-camera="${esc(cam.camera_id)}">
         <div class="cam-video">
           ${opts.live
-            ? `<img src="${API.streamUrl(cam.camera_id)}" alt="Live view from ${esc(cam.camera_id)}"
-                    onerror="this.style.display='none'">`
+            ? `<img data-snap="${API.snapshotUrl(cam.camera_id)}" alt="Live view from ${esc(cam.camera_id)}">`
             : `<div class="placeholder">Preview disabled on this view</div>`}
           <div class="cam-overlay">
             <span class="badge b-neutral mono tiny">${esc(cam.camera_id)}</span>
@@ -83,6 +82,42 @@ const Views = (() => {
             : `<div class="cam-caps">${caps}</div>`}
         </div>
       </div>`;
+  }
+
+  // Poll each camera tile for a fresh JPEG snapshot instead of holding a
+  // persistent MJPEG stream. A browser allows only ~6 connections per host, and
+  // five live MJPEG streams plus the websocket starve the later tiles to black.
+  // Short snapshot requests reuse keep-alive connections, so every tile updates.
+  // Only on-screen tiles are refreshed (via IntersectionObserver) to keep the
+  // request rate low; a new Image() preloads each frame so tiles never flicker
+  // to blank while the next one decodes.
+  function attachLiveStreams(el) {
+    if (!el) return;
+    if (el._poll) { clearInterval(el._poll); el._poll = null; }
+    if (el._io) el._io.disconnect();
+
+    const imgs = [...el.querySelectorAll('img[data-snap]')];
+    const visible = new Set(imgs);   // default: assume visible until observer says otherwise
+    if ('IntersectionObserver' in window) {
+      visible.clear();
+      el._io = new IntersectionObserver((entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting) visible.add(e.target);
+          else visible.delete(e.target);
+        }
+      }, { root: null, rootMargin: '120px', threshold: 0.01 });
+      imgs.forEach((img) => el._io.observe(img));
+    }
+
+    const refresh = (img) => {
+      const probe = new Image();
+      probe.onload = () => { img.src = probe.src; img.style.display = ''; };
+      probe.src = img.dataset.snap + '?t=' + Date.now();
+    };
+    imgs.forEach(refresh);                       // first frame asap
+    el._poll = setInterval(() => {
+      (visible.size ? visible : imgs).forEach(refresh);
+    }, 350);                                      // ~3 fps preview, plenty for a wall
   }
 
   const PATROL_BADGE = {
@@ -387,7 +422,10 @@ const Views = (() => {
         });
       }
       const camEl = document.getElementById('dash-cams');
-      if (camEl) camEl.innerHTML = cams.map(c => cameraCard(c, { live: true })).join('');
+      if (camEl) {
+        camEl.innerHTML = cams.map(c => cameraCard(c, { live: true })).join('');
+        attachLiveStreams(camEl);
+      }
 
       const alertsEl = document.getElementById('dash-alerts');
       if (alertsEl) {
@@ -426,6 +464,7 @@ const Views = (() => {
       if (el.dataset.ids !== ids) {
         el.dataset.ids = ids;
         el.innerHTML = (state.cameras || []).map(c => cameraCard(c, { live: true })).join('');
+        attachLiveStreams(el);
         return;
       }
       (state.cameras || []).forEach(c => {
