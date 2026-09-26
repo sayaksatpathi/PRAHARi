@@ -39,6 +39,7 @@ from pydantic import BaseModel
 from prahari.common.config import get_settings
 from prahari.common.db import Database
 from prahari.common.models import Event, SyncState
+from prahari.core.notary import LedgerRewriteError, Notary
 
 logging.basicConfig(
     level=logging.INFO,
@@ -61,6 +62,9 @@ class CoreState:
         self.db = Database(CORE_DB_PATH)
         CORE_EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
         self.nodes: dict[str, dict[str, Any]] = {}
+        # The notary countersigns node chain heads with a core-only secret, so a
+        # node cannot rewrite history the core has already witnessed.
+        self.notary = Notary(self.db, SETTINGS.core_notary_secret)
 
     def close(self) -> None:
         self.db.close()
@@ -123,6 +127,7 @@ async def ingest_events(batch: IngestBatch):
 
     accepted: list[str] = []
     duplicates: list[str] = []
+    rejected: list[dict[str, Any]] = []
 
     for event in batch.events:
         existing = state.db.get_event(event.event_id)
@@ -131,6 +136,25 @@ async def ingest_events(batch: IngestBatch):
             duplicates.append(event.event_id)
             accepted.append(event.event_id)
             continue
+
+        # Notary rewrite guard: if the core has already countersigned this
+        # ledger index, the node may not re-present it with different content.
+        # Refuse the event rather than let INSERT OR REPLACE overwrite witnessed
+        # history, and surface it as a tamper finding.
+        if event.ledger_index:
+            cp = state.db.checkpoint_at(batch.node_id, event.ledger_index)
+            if cp is not None and cp["entry_hash"] != event.entry_hash:
+                log.error("REWRITE REFUSED: node %s index %d — witnessed %s…, "
+                          "presented %s…", batch.node_id, event.ledger_index,
+                          cp["entry_hash"][:12], event.entry_hash[:12])
+                rejected.append({
+                    "event_id": event.event_id,
+                    "ledger_index": event.ledger_index,
+                    "reason": "ledger_rewrite_refused",
+                    "witnessed": cp["entry_hash"],
+                    "presented": event.entry_hash,
+                })
+                continue
 
         if drifted:
             # Record the correction; never overwrite what the node observed.
@@ -156,9 +180,25 @@ async def ingest_events(batch: IngestBatch):
                  len(accepted) - len(duplicates), batch.node_id,
                  len(duplicates), drift)
 
+    # Advance the notary checkpoint over the node's (now-extended) chain head.
+    # Rewrites were already refused above, so this cannot raise; the guard is
+    # kept so a witnessing failure can never lose an otherwise-accepted batch.
+    checkpoint = None
+    try:
+        entries = state.db.node_ledger_entries(batch.node_id)
+        cp = state.notary.witness(batch.node_id, entries)
+        if cp is not None:
+            checkpoint = {"ledger_index": cp.ledger_index,
+                          "entry_hash": cp.entry_hash,
+                          "core_sig": cp.core_sig}
+    except LedgerRewriteError as exc:
+        log.error("notary witnessing refused for %s: %s", batch.node_id, exc)
+
     return {
         "accepted": accepted,
         "duplicates": duplicates,
+        "rejected": rejected,
+        "checkpoint": checkpoint,
         "clock_offset_seconds": round(drift, 3),
         "clock_corrected": drifted,
     }
@@ -254,11 +294,35 @@ async def verify_ledger():
                 }
                 break
             prev_hash = event.entry_hash
+
+        # Notary layer: confirm the core's own countersignature log is intact,
+        # and that no event on record has drifted from what the core witnessed.
+        # A rewrite that keeps the node's chain internally consistent (and so
+        # passes the check above) is caught here, because it no longer matches
+        # the head hash the core countersigned.
+        entries = [(e.ledger_index, e.entry_hash) for e in events]
+        chain = state.notary.verify_checkpoint_chain(node_id)
+        audit = state.notary.audit_against_events(node_id, entries)
+        verdict["notary"] = {
+            "witnessed_up_to": chain.get("witnessed_up_to", 0),
+            "checkpoints": chain.get("checkpoints", 0),
+            "countersign_valid": chain["valid"],
+            "no_rewrite": audit["valid"],
+        }
+        if not audit["valid"]:
+            verdict["valid"] = False
+            verdict["broken_at"] = audit["broken_at"]
+            verdict["message"] = audit["message"]
+        elif not chain["valid"]:
+            verdict["valid"] = False
+            verdict["message"] = chain["message"]
+
         results[node_id] = verdict
         all_valid = all_valid and verdict["valid"]
 
     return {"valid": all_valid, "nodes": results,
-            "note": "each edge node maintains an independent chain from index 1"}
+            "note": "each node keeps an independent chain from index 1; the core "
+                    "countersigns chain heads so witnessed history cannot be rewritten"}
 
 
 def main() -> None:

@@ -28,7 +28,7 @@ from prahari.common.models import (
     Zone,
 )
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -171,6 +171,24 @@ CREATE TABLE IF NOT EXISTS node_state (
     payload     TEXT NOT NULL,
     updated_at  TEXT NOT NULL
 );
+
+-- Core-side notary checkpoints. The sector core countersigns each node's chain
+-- head with a secret no edge node holds, and remembers the entry_hash it
+-- witnessed at each index. This is what makes the ledger tamper-RESISTANT and
+-- not merely tamper-evident: a node cannot rewrite history the core has already
+-- witnessed, because it can neither forge the core signature nor make the
+-- witnessed hash match a rewritten entry. The checkpoints are themselves
+-- hash-chained (core_prev_sig -> core_sig) so the notary log is append-only.
+CREATE TABLE IF NOT EXISTS checkpoints (
+    node_id       TEXT NOT NULL,
+    ledger_index  INTEGER NOT NULL,
+    entry_hash    TEXT NOT NULL,
+    witnessed_at  TEXT NOT NULL,
+    core_prev_sig TEXT NOT NULL DEFAULT '',
+    core_sig      TEXT NOT NULL,
+    PRIMARY KEY (node_id, ledger_index)
+);
+CREATE INDEX IF NOT EXISTS idx_checkpoints_node ON checkpoints(node_id, ledger_index DESC);
 """
 
 
@@ -269,6 +287,24 @@ class Database:
                 """)
                 conn.execute("PRAGMA user_version = 3")
                 version = 3
+
+            # v3 -> v4 (Core notary checkpoints — countersigned chain heads)
+            if version < 4:
+                conn.executescript("""
+                    CREATE TABLE IF NOT EXISTS checkpoints (
+                        node_id       TEXT NOT NULL,
+                        ledger_index  INTEGER NOT NULL,
+                        entry_hash    TEXT NOT NULL,
+                        witnessed_at  TEXT NOT NULL,
+                        core_prev_sig TEXT NOT NULL DEFAULT '',
+                        core_sig      TEXT NOT NULL,
+                        PRIMARY KEY (node_id, ledger_index)
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_checkpoints_node
+                        ON checkpoints(node_id, ledger_index DESC);
+                """)
+                conn.execute("PRAGMA user_version = 4")
+                version = 4
         conn.close()
 
         self._conn = sqlite3.connect(
@@ -517,6 +553,66 @@ class Database:
         )
         return [(int(r["ledger_index"]), r["prev_hash"], r["entry_hash"], r["event_id"])
                 for r in rows]
+
+    def node_ledger_entries(self, node_id: str) -> list[tuple[int, str]]:
+        """A single node's chain as ``(ledger_index, entry_hash)``, ascending.
+
+        The core's event table interleaves every node's chain, so notary
+        witnessing and rewrite auditing always work one node at a time.
+        """
+        rows = self.query(
+            "SELECT ledger_index, entry_hash FROM events "
+            "WHERE node_id=? AND ledger_index > 0 ORDER BY ledger_index ASC",
+            (node_id,),
+        )
+        return [(int(r["ledger_index"]), str(r["entry_hash"])) for r in rows]
+
+    # -- notary checkpoints (core side) ---------------------------------
+    def append_checkpoint(self, node_id: str, ledger_index: int, entry_hash: str,
+                          witnessed_at: str, core_prev_sig: str, core_sig: str) -> None:
+        """Record a core countersignature over a node's chain head.
+
+        INSERT OR REPLACE keyed on (node_id, ledger_index): re-witnessing the
+        same index with the same content is idempotent, while an attempt to
+        witness a *different* hash at an index is caught by the notary before it
+        ever reaches here.
+        """
+        self.execute(
+            """INSERT OR REPLACE INTO checkpoints
+               (node_id, ledger_index, entry_hash, witnessed_at, core_prev_sig, core_sig)
+               VALUES(?,?,?,?,?,?)""",
+            (node_id, ledger_index, entry_hash, witnessed_at, core_prev_sig, core_sig),
+        )
+
+    def latest_checkpoint(self, node_id: str) -> dict[str, Any] | None:
+        row = self.query_one(
+            "SELECT node_id, ledger_index, entry_hash, witnessed_at, core_prev_sig, "
+            "core_sig FROM checkpoints WHERE node_id=? ORDER BY ledger_index DESC LIMIT 1",
+            (node_id,),
+        )
+        return dict(row) if row else None
+
+    def checkpoint_at(self, node_id: str, ledger_index: int) -> dict[str, Any] | None:
+        row = self.query_one(
+            "SELECT node_id, ledger_index, entry_hash, witnessed_at, core_prev_sig, "
+            "core_sig FROM checkpoints WHERE node_id=? AND ledger_index=?",
+            (node_id, ledger_index),
+        )
+        return dict(row) if row else None
+
+    def list_checkpoints(self, node_id: str | None = None) -> list[dict[str, Any]]:
+        if node_id:
+            rows = self.query(
+                "SELECT node_id, ledger_index, entry_hash, witnessed_at, core_prev_sig, "
+                "core_sig FROM checkpoints WHERE node_id=? ORDER BY ledger_index ASC",
+                (node_id,),
+            )
+        else:
+            rows = self.query(
+                "SELECT node_id, ledger_index, entry_hash, witnessed_at, core_prev_sig, "
+                "core_sig FROM checkpoints ORDER BY node_id, ledger_index ASC"
+            )
+        return [dict(r) for r in rows]
 
     # -- sync queue -----------------------------------------------------
     def pending_events(self, limit: int) -> list[Event]:

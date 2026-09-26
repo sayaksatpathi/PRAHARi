@@ -114,6 +114,13 @@ class Settings(BaseSettings):
     secret_key: str = "dev-only-insecure-key-change-me"
     token_ttl_seconds: int = 8 * 3600
 
+    # --- Evidence notary (core-side countersigning) ------------------------
+    # Held ONLY by the sector core, never distributed to edge nodes. It is what
+    # lets the core witness a node's chain head so the node cannot later rewrite
+    # history the core has already seen (tamper-evident -> tamper-resistant).
+    # Must be overridden in production via PRAHARI_CORE_NOTARY_SECRET.
+    core_notary_secret: str = "dev-only-insecure-notary-key-change-me"
+
     # --- Demo --------------------------------------------------------------
     demo_mode: bool = True
     demo_seed: int = Field(default=20260913, description="Deterministic demo RNG seed")
