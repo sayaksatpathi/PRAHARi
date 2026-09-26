@@ -125,6 +125,7 @@ const API = (() => {
     status:      () => request('/api/system/status'),
     bandwidth:   () => request('/api/system/bandwidth'),
     verifyChain: () => request('/api/system/ledger/verify'),
+    verifyNotary: () => request('/api/system/ledger/notary'),
     audit:       (limit = 200) => request(`/api/system/audit?limit=${limit}`),
 
     cameras:     () => request('/api/cameras'),

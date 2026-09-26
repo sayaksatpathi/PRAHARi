@@ -742,17 +742,30 @@ const Views = (() => {
           breaks every link that follows. This is what lets a sector core accept a
           three-day backlog from a disconnected outpost and still check it.
           <br><br>
-          <strong>This is tamper-evident, not tamper-proof.</strong> Anyone holding
-          this node's key material could forge a consistent chain. Hardware-backed
-          keys and countersigning at the core are designed for and not yet built.
+          <strong>The edge chain alone is tamper-evident.</strong> A determined
+          insider holding this node's key could edit an event and re-stamp the
+          whole chain into a consistent rewrite. That gap is closed at the sector
+          core, which <strong>countersigns</strong> this node's chain head with a
+          key the node does not hold — so history the core has witnessed cannot be
+          rewritten undetected. That makes the two-tier ledger tamper-<em>resistant</em>.
         </div>
         <div class="panel" style="margin-bottom:12px">
           <div class="panel-head">
-            <span class="panel-title">Chain verification</span>
+            <span class="panel-title">Chain verification (this node)</span>
             <button class="sm primary" id="verify-btn">Verify now</button>
           </div>
           <div class="panel-body" id="verify-result">
             <p class="small dim" style="margin:0">Press verify to walk the whole chain.</p>
+          </div>
+        </div>
+        <div class="panel" style="margin-bottom:12px">
+          <div class="panel-head">
+            <span class="panel-title">Core countersigning (notary)</span>
+            <button class="sm" id="notary-btn">Check</button>
+          </div>
+          <div class="panel-body" id="notary-result">
+            <p class="small dim" style="margin:0">The core witnesses this node's chain
+              head on sync. Press check for the latest countersigned position.</p>
           </div>
         </div>
         <div class="panel">
@@ -771,6 +784,41 @@ const Views = (() => {
               <span class="small dim">${esc(r.message || '')}</span>
             </div>
             ${r.head ? `<div class="tiny faint mono" style="margin-top:8px">head ${esc(r.head)}</div>` : ''}`;
+        } catch (e) {
+          out.innerHTML = `<div class="notice bad">${esc(e.message)}</div>`;
+        }
+      });
+
+      document.getElementById('notary-btn').addEventListener('click', async () => {
+        const out = document.getElementById('notary-result');
+        out.innerHTML = '<p class="small dim">Checking the core…</p>';
+        try {
+          const r = await API.verifyNotary();
+          if (!r.core_reachable) {
+            out.innerHTML = `<div class="row">
+                <span class="badge b-neutral solid">CORE OFFLINE</span>
+                <span class="small dim">${esc(r.message || '')}</span>
+              </div>`;
+            return;
+          }
+          const w = r.witnessed;
+          if (!w) {
+            out.innerHTML = `<div class="row">
+                <span class="badge b-neutral solid">NOT YET WITNESSED</span>
+                <span class="small dim">${esc(r.message || 'no checkpoints yet')}</span>
+              </div>`;
+            return;
+          }
+          const ok = w.countersign_valid && w.no_rewrite;
+          out.innerHTML = `
+            <div class="row">
+              <span class="badge ${ok ? 'b-ok' : 'b-bad'} solid">${ok ? 'COUNTERSIGNED' : 'REWRITE DETECTED'}</span>
+              <span class="small dim">core witnessed up to entry #${w.witnessed_up_to} (${w.checkpoints} checkpoint${w.checkpoints === 1 ? '' : 's'})</span>
+            </div>
+            <div class="tiny faint" style="margin-top:8px">
+              countersign log ${w.countersign_valid ? 'intact' : 'ALTERED'} ·
+              witnessed history ${w.no_rewrite ? 'unchanged' : 'REWRITTEN'}
+            </div>`;
         } catch (e) {
           out.innerHTML = `<div class="notice bad">${esc(e.message)}</div>`;
         }

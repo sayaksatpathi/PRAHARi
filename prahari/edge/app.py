@@ -537,6 +537,40 @@ async def verify_ledger(principal: Principal = Depends(current_principal)):
     return runtime.ledger.verify()
 
 
+@app.get("/api/system/ledger/notary", tags=["system"])
+async def ledger_notary(principal: Principal = Depends(current_principal)):
+    """Report the sector core's countersignature status for this node.
+
+    Countersigning is the core's job (it holds a key this node does not), so this
+    asks the core's ``/api/ledger/verify`` for this node's notary summary:
+    how far the core has witnessed the chain, whether the countersign log is
+    intact, and whether any witnessed entry has since been rewritten. When the
+    core is unreachable — the normal case for a lone node between syncs — that is
+    reported plainly rather than as a failure.
+    """
+    import httpx
+
+    node_id = runtime.settings.node_id
+    core_url = runtime.settings.core_url.rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=4.0) as client:
+            resp = await client.get(f"{core_url}/api/ledger/verify")
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception as exc:  # noqa: BLE001 - core being offline is expected
+        return {"core_reachable": False, "node_id": node_id,
+                "message": "sector core not reachable — countersigning is performed "
+                           "at the core when this node syncs",
+                "detail": str(exc)[:120]}
+
+    node_result = (data.get("nodes") or {}).get(node_id)
+    return {"core_reachable": True, "node_id": node_id,
+            "witnessed": node_result.get("notary") if node_result else None,
+            "node_valid": node_result.get("valid") if node_result else None,
+            "message": ("no checkpoints yet — this node has not synced to the core"
+                        if not node_result else "")}
+
+
 @app.get("/api/system/audit", tags=["system"])
 async def audit_log(limit: int = 200, principal: Principal = Depends(require("admin"))):
     return {"entries": runtime.db.list_audit(limit)}
