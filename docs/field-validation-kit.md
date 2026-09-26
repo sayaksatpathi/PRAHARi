@@ -38,6 +38,13 @@ real border pilot would quantify per site.
 range, in fog/rain, on decade-old fog-lensed domes, with local class confusion
 (livestock). That needs real footage — §1.
 
+**Per-case module test on real clips.** Beyond the aggregate metrics above, every
+perception module (detection, tracking, ANPR, SAM 2, face) is run on a **separate
+real public clip per border case** (night, vehicle, animal, aerial, crowd, line-
+crossing) and reported — including that livestock is classified as `cattle`, not
+`person`. See [real-footage-case-tests.md](real-footage-case-tests.md)
+(`scripts/fetch_border_case_clips.py` + `scripts/test_border_cases.py --all`).
+
 ---
 
 ## 1. The ask (what only the sponsor can provide)
