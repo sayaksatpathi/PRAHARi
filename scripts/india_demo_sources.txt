@@ -27,3 +27,11 @@ hd_30609021 https://videos.pexels.com/video-files/30609021/13105510_1920_1080_30
 hd_31048534 https://videos.pexels.com/video-files/31048534/13270131_1920_1080_30fps.mp4
 hd_34394876 https://videos.pexels.com/video-files/34394876/14571064_1920_1080_60fps.mp4
 hd_34394881 https://videos.pexels.com/video-files/34394881/14571054_1920_1080_60fps.mp4
+
+# Night footage for CAM-052 (Riverine Night Post):
+night_10853328 https://videos.pexels.com/video-files/10853328/10853328-hd_1280_720_30fps.mp4
+night_10992760 https://videos.pexels.com/video-files/10992760/10992760-hd_1280_720_50fps.mp4
+night_17812439 https://videos.pexels.com/video-files/17812439/17812439-hd_1280_720_30fps.mp4
+night_30739577 https://videos.pexels.com/video-files/30739577/13149274_1280_720_25fps.mp4
+night_31264316 https://videos.pexels.com/video-files/31264316/13351814_1280_720_50fps.mp4
+night_16456496 https://videos.pexels.com/video-files/16456496/16456496-hd_1366_720_25fps.mp4

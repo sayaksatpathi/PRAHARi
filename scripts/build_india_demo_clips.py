@@ -37,6 +37,13 @@ PLAN = {
                 "thermal", (640, 480)),  # ridge thermal
     "CAM-045": (["5069172", "2843866", "26727332"],
                 "legacy", (640, 480)),   # legacy analogue south track
+    # Night post: real low-light Indian street/road footage. Border infiltration
+    # happens after dark, so this is the most operationally relevant camera —
+    # detection + tracking on genuinely dark scenes lit only by streetlights and
+    # headlights.
+    "CAM-052": (["night_16456496", "night_10853328", "night_17812439",
+                 "night_10992760", "night_31264316"],
+                "night", (960, 540)),
 }
 
 
@@ -54,6 +61,14 @@ def style_frame(frame, style, size):
         frame = cv2.cvtColor(np.clip(hsv, 0, 255).astype(np.uint8), cv2.COLOR_HSV2BGR)
         noise = np.random.normal(0, 6, frame.shape).astype(np.int16)
         frame = np.clip(frame.astype(np.int16) + noise, 0, 255).astype(np.uint8)
+    elif style == "night":
+        # Gentle low-light lift (CLAHE on the luminance channel) so faint figures
+        # read on the wall and the detector has more signal, without inventing
+        # detail. The footage stays real night video, just enhanced.
+        lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
+        l = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8)).apply(l)
+        frame = cv2.cvtColor(cv2.merge((l, a, b)), cv2.COLOR_LAB2BGR)
     return frame
 
 

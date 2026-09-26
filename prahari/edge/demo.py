@@ -57,6 +57,7 @@ _CAM_CLIPS = {
     "CAM-022": "CAM-022.mp4",   # open-border approach: mixed traffic
     "CAM-031": "CAM-031.mp4",   # ridge thermal (thermal colormap)
     "CAM-045": "CAM-045.mp4",   # legacy analogue south track (degraded look)
+    "CAM-052": "CAM-052.mp4",   # riverine night post (real low-light footage)
 }
 
 
@@ -164,6 +165,26 @@ def demo_cameras(node_id: str) -> list[Camera]:
             sim_profile={"preset": "degraded_legacy", "scenario": "approach",
                          "camera_height_m": 4.5, "tilt_deg": 3.0,
                          "fence_distance_m": 35.0},
+        ),
+        Camera(
+            camera_id="CAM-052",
+            name="Riverine Night Post - IR",
+            location="River ghat, night observation post",
+            latitude=26.7395, longitude=88.4471,
+            source_kind="simulator",   # overridden to the real night clip below
+            # The night camera. Infiltration happens after dark, so this is the
+            # operationally decisive feed: an open-border approach watched under
+            # low light where the pattern-of-life doctrine and night movement
+            # rules carry the weight.
+            role=CameraRole.APPROACH,
+            border_profile=BorderProfile.OPEN,
+            sensor_type=SensorType.IR_ILLUMINATED,
+            claimed_width=1280, claimed_height=720, claimed_fps=12.0,
+            field_of_view_deg=50.0, night_capable=True, estimated_range_m=80.0,
+            edge_node=node_id,
+            sim_profile={"preset": "night_ir", "scenario": "approach",
+                         "camera_height_m": 5.0, "tilt_deg": 4.0,
+                         "fence_distance_m": 40.0},
         ),
     ])
 
