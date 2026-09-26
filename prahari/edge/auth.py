@@ -24,6 +24,7 @@ import hmac
 import json
 import logging
 import secrets
+import threading
 import time
 from dataclasses import dataclass
 from typing import Literal
@@ -145,3 +146,59 @@ class UserStore:
         self.db.audit("system", "user.bootstrap", "admin",
                       "initial administrator created with a generated password")
         return password
+
+
+class LoginThrottle:
+    """Brute-force protection for the login endpoint.
+
+    A border node's admin login is a real target and scrypt only slows a guess,
+    it does not stop a campaign of them. This adds a sliding-window failure count
+    per (username, source-IP) with an **escalating lockout**: after
+    ``max_failures`` failures inside ``window_s`` the key is locked, and each
+    further lockout doubles the cooldown up to ``max_lockout_s``. A success
+    clears the key. In-memory and thread-safe; keyed per source so one attacker
+    cannot lock out a legitimate operator elsewhere.
+    """
+
+    def __init__(self, max_failures: int = 5, window_s: float = 300.0,
+                 base_lockout_s: float = 30.0, max_lockout_s: float = 900.0) -> None:
+        self.max_failures = max_failures
+        self.window_s = window_s
+        self.base_lockout_s = base_lockout_s
+        self.max_lockout_s = max_lockout_s
+        # key -> {"fails": [monotonic_ts...], "locked_until": ts, "lockouts": int}
+        self._state: dict[str, dict] = {}
+        self._lock = threading.Lock()
+
+    def _now(self) -> float:
+        return time.monotonic()
+
+    def retry_after(self, key: str) -> float:
+        """Seconds the key must wait before another attempt, or 0.0 if allowed."""
+        with self._lock:
+            st = self._state.get(key)
+            if not st:
+                return 0.0
+            remaining = st.get("locked_until", 0.0) - self._now()
+            return max(0.0, remaining)
+
+    def record_failure(self, key: str) -> float:
+        """Register a failed attempt. Returns the resulting lockout (0.0 if none)."""
+        now = self._now()
+        with self._lock:
+            st = self._state.setdefault(key, {"fails": [], "locked_until": 0.0,
+                                              "lockouts": 0})
+            st["fails"] = [t for t in st["fails"] if now - t < self.window_s]
+            st["fails"].append(now)
+            if len(st["fails"]) >= self.max_failures:
+                st["lockouts"] += 1
+                cooldown = min(self.base_lockout_s * (2 ** (st["lockouts"] - 1)),
+                               self.max_lockout_s)
+                st["locked_until"] = now + cooldown
+                st["fails"] = []
+                return cooldown
+            return 0.0
+
+    def record_success(self, key: str) -> None:
+        with self._lock:
+            self._state.pop(key, None)

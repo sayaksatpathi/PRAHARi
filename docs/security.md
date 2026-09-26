@@ -117,7 +117,13 @@ short-lived signed stream URLs, and it is not built.
 **No transport security by default.** The node serves plain HTTP on localhost. A
 real deployment needs TLS, and edge-to-core needs mTLS with per-node certificates.
 
-**No rate limiting on authentication.** Brute-force protection is absent.
+**Login brute-force protection — built.** The login endpoint throttles per
+(username, source-IP) with a sliding-window failure count and an escalating
+lockout (`edge/auth.py:LoginThrottle`), returning 429 + `Retry-After` once locked;
+a success clears the counter, and the key is per-source so one attacker cannot lock
+out an operator signing in elsewhere. What is *not* built: a distributed limiter
+shared across nodes, and CAPTCHA/step-up — a single-process in-memory limiter is
+enough for one node but resets on restart.
 
 **Model artifacts are integrity-checked — BUILT (`edge/manifest.py`).** A swapped
 detection model is a supply-chain attack: a node silently goes blind to a class

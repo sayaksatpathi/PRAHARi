@@ -41,7 +41,9 @@ from prahari.common.models import (
 )
 from prahari.edge.alerting import AlertGovernor
 from prahari.edge.anpr import RepeatPlateTracker, build_plate_reader
-from prahari.edge.auth import Principal, UserStore, issue_token, verify_token
+from prahari.edge.auth import (
+    LoginThrottle, Principal, UserStore, issue_token, verify_token,
+)
 from prahari.edge.demo import bootstrap_demo_site
 from prahari.edge.evidence import EvidenceLedger, EvidenceStore
 from prahari.edge.factory import (
@@ -84,6 +86,7 @@ class NodeRuntime:
         self.ledger = EvidenceLedger(self.db)
         self.normalcy = NormalcyModel(self.db)
         self.users = UserStore(self.db)
+        self.login_throttle = LoginThrottle()
         self.sync = SyncManager(
             self.db, self.settings.core_url, self.settings.node_id,
             core_token=self.settings.core_token,
@@ -462,11 +465,26 @@ class LoginRequest(BaseModel):
 
 @app.post("/api/auth/login", tags=["auth"])
 async def login(req: LoginRequest, request: Request):
+    client_ip = str(request.client.host if request.client else "?")
+    # Brute-force protection: throttle per (username, source-IP) so a campaign of
+    # guesses against one account from one host is locked out, without letting an
+    # attacker lock a legitimate operator signing in from elsewhere.
+    throttle_key = f"{req.username}|{client_ip}"
+    wait = runtime.login_throttle.retry_after(throttle_key)
+    if wait > 0:
+        runtime.db.audit(req.username, "auth.throttled", detail=client_ip)
+        raise HTTPException(status_code=429, detail="too many attempts; try later",
+                            headers={"Retry-After": str(int(wait) + 1)})
+
     principal = runtime.users.authenticate(req.username, req.password)
     if principal is None:
+        locked = runtime.login_throttle.record_failure(throttle_key)
         runtime.db.audit(req.username, "auth.failed",
-                         detail=str(request.client.host if request.client else "?"))
+                         detail=f"{client_ip}"
+                                + (f" (locked {int(locked)}s)" if locked else ""))
         raise HTTPException(status_code=401, detail="invalid username or password")
+
+    runtime.login_throttle.record_success(throttle_key)
     token = issue_token(principal.username, principal.role,
                         runtime.settings.secret_key,
                         runtime.settings.token_ttl_seconds)

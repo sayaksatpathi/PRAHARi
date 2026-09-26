@@ -78,7 +78,7 @@ reviewer can check component-by-component. Every control is marked **Built**,
 | **S**poofing | Guess/steal a password | scrypt (n=2¹⁴,r=8,p=1) + per-user salt; constant-time compare; unknown-user burns comparable time | **Built** |
 | **S**poofing | Forge/replay a token | HMAC-SHA256 signed bearer token; signature + expiry verified; `jti` nonce | **Built** |
 | **E**levation | Act above one's role | `viewer < operator < admin` enforced as a FastAPI dependency per endpoint | **Built** |
-| **S**poofing | Brute-force login | Rate limiting on auth | **Planned** |
+| **S**poofing | Brute-force login | Per-(user,source-IP) sliding-window failure count with escalating lockout (`LoginThrottle`); returns 429 + Retry-After | **Built** |
 | **I**nfo disclosure | Default/guessable admin | Bootstrap admin password generated randomly, printed once | **Built** |
 
 ### 3.6 Credentials & secrets
