@@ -574,7 +574,15 @@ class CameraPipeline:
             if existing is not None and existing.above_threshold and existing.format_valid:
                 continue          # already have a good read for this vehicle
 
-            if not vehicle_in_anpr_region(track.bbox, region, w, h):
+            # Read a vehicle whose foot sits in the certified band, OR one that is
+            # large and close enough that its plate is readable wherever it is in
+            # frame — a truck filling half the view carries a plate the model can
+            # read even if its wheels are above the calibrated line. The plate
+            # pixel-width threshold (MIN_PLATE_WIDTH_PX) is the real quality gate
+            # either way, and a read below it is drawn amber, not promoted.
+            foot_in_region = vehicle_in_anpr_region(track.bbox, region, w, h)
+            close_vehicle = (track.bbox.y2 - track.bbox.y1) >= 0.18 * h
+            if not (foot_in_region or close_vehicle):
                 continue
 
             # Throttle per track. Plate reading is the most expensive thing on
@@ -713,6 +721,26 @@ class CameraPipeline:
                 cv2.rectangle(canvas, (fx, fy), (fx + fw, fy + fh), (200, 200, 50), 1)
                 cv2.putText(canvas, "face", (fx, max(12, fy - 4)),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 50), 1, cv2.LINE_AA)
+
+        # ANPR: draw the plate box and the recognised number, so a read is
+        # visible on the wall and not merely logged. Green when it passed the
+        # pixel-width and format checks, amber when it is retained-but-indicative.
+        for read in self._plate_reads.values():
+            if read is None:
+                continue
+            pb = read.plate_bbox
+            solid = read.above_threshold and read.format_valid
+            col = (90, 230, 90) if solid else (70, 190, 240)
+            cv2.rectangle(canvas, (int(pb.x1), int(pb.y1)), (int(pb.x2), int(pb.y2)),
+                          col, 2)
+            txt = read.text_normalised or read.text
+            if txt:
+                (tw, th), _ = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, 0.62, 2)
+                lx, ly = int(pb.x1), max(th + 6, int(pb.y1) - 6)
+                cv2.rectangle(canvas, (lx, ly - th - 6), (lx + tw + 8, ly + 3),
+                              (15, 18, 22), -1)
+                cv2.putText(canvas, txt, (lx + 4, ly - 3), cv2.FONT_HERSHEY_SIMPLEX,
+                            0.62, col, 2, cv2.LINE_AA)
 
         banner = (f"{self.camera.camera_id}  |  {self.state.upper()}  |  "
                   f"{self.measured_fps:.1f} fps  |  {len(self._tracks)} tracked")
