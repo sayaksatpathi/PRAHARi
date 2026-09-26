@@ -22,10 +22,14 @@ sector core to accept a backlog of events on trust, and the chain is what turns
 that into something checkable. It also means an evidence package carries an
 integrity statement if it is ever put in front of anyone who has to rely on it.
 
-A caveat stated plainly: this is tamper-*evident*, not tamper-*proof*. Anyone
-holding the node's key material could forge a consistent chain. Making it
-tamper-resistant needs hardware-backed keys and countersigning at the core, both
-of which are designed for in docs/security.md and neither of which is built here.
+A caveat stated plainly: the edge chain *alone* is tamper-*evident*, not
+tamper-*proof* — a party holding the node's key can re-stamp the whole chain into
+a consistent rewrite. That gap is closed at the sector core: ``core/notary.py``
+countersigns each node's chain head with a key no node holds and remembers the
+hash it witnessed, so witnessed history cannot be rewritten undetected (see
+docs/security.md, "Evidence integrity"). The remaining steps — hardware-backed
+keys and external anchoring of the checkpoint head — are designed for there and
+not built.
 """
 from __future__ import annotations
 

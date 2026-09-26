@@ -50,18 +50,34 @@ clip. Deliberately **not** committed to: acknowledgement, sync state and operato
 feedback, so that working the alert queue does not invalidate the evidence. A
 test asserts exactly that.
 
-**This is tamper-evident, not tamper-proof.** Anyone holding the node's key
-material could recompute a consistent chain. Making it tamper-resistant needs:
+The edge chain alone is tamper-**evident**: a naive edit breaks a link. It is not,
+on its own, tamper-proof — an insider holding the node's key can edit an event and
+re-stamp every following `prev_hash`/`entry_hash`, producing an internally
+consistent chain that the node's own verify accepts. Closing that needs three
+things, of which the middle one is now built:
 
-- hardware-backed keys (TPM or a secure element) so the signing key cannot be
-  extracted from a node an adversary has physical access to;
-- countersigning at the sector core, so the core's record of a chain head cannot
-  be rewritten by whoever holds the edge key;
-- periodic publication of chain heads, so a wholesale replacement of a node's
-  history is detectable even with the key.
+- **Core countersigning — BUILT (`core/notary.py`).** When the sector core ingests
+  a node's batch it countersigns the node's chain head (HMAC-SHA256 under
+  `core_notary_secret`, a key no edge node holds) and records the `entry_hash` it
+  witnessed. Because `entry_hash` at index *i* commits to `prev_hash`, any change
+  to any entry ≤ N changes the head hash at N — so a rewrite of witnessed history
+  is detected (`/api/ledger/verify` fails, ingest refuses the re-presented index)
+  and cannot be hidden, since the node can neither forge the core signature nor
+  make the witnessed head match the rewrite. The checkpoints are themselves
+  hash-chained, so the notary log is append-only too. This makes the two-tier
+  ledger tamper-**resistant**: edge nodes write, the core notarizes. Tests in
+  `tests/security/test_countersign.py` include the flagship case — a rewrite the
+  edge chain passes and the notary catches.
+- **Hardware-backed keys (TPM / secure element) — NOT built.** The notary secret is
+  a symmetric key in core config; a compromised core could still forge witnesses.
+  Asymmetric core signatures with the private key in an HSM remove that residual
+  trust, and are the next step.
+- **External anchoring of the checkpoint head — NOT built.** Periodically
+  publishing the latest checkpoint signature to an append-only external store
+  would make even a full core compromise detectable after the fact.
 
-None of those are implemented. The limitation is stated in the module, in the
-dashboard's Evidence Integrity view, and in the README.
+The scope — what is and is not built — is stated in the module, in the dashboard's
+Evidence Integrity view, and here.
 
 ## Authentication and authorisation
 
@@ -103,9 +119,14 @@ real deployment needs TLS, and edge-to-core needs mTLS with per-node certificate
 
 **No rate limiting on authentication.** Brute-force protection is absent.
 
-**Model artifacts are not signed.** A swapped detection model is a supply-chain
-attack with no defence here. Signed model artifacts with verification at load are
-designed for and not implemented.
+**Model artifacts are integrity-checked — BUILT (`edge/manifest.py`).** A swapped
+detection model is a supply-chain attack: a node silently goes blind to a class
+while every health check stays green. Each weight file is SHA-256-verified against
+a manifest before it is loaded, and the manifest itself can be HMAC-SHA256 signed
+(`sign_models` / `verify_signature`) so it cannot be swapped either. The residual
+gap is the same as for the notary: the manifest signature is symmetric, so this is
+integrity + provenance, not protection against a fully compromised signer — an
+asymmetric supply-chain signature (e.g. Sigstore-style) is the next step.
 
 ## What a real deployment needs
 
