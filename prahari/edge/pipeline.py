@@ -599,6 +599,15 @@ class CameraPipeline:
             if read is None:
                 continue
 
+            # Only accept a read that is a plausible plate: a real plate-width and
+            # a valid Indian-plate format. Widening the read to large vehicles let
+            # fast-alpr grab plate-shaped text from background signage inside a big
+            # crop (shop boards, hoardings) — those fail the format check and must
+            # never be shown or recorded as a plate. A genuine plate that OCRs
+            # correctly passes both.
+            if not (read.above_threshold and read.format_valid):
+                continue
+
             previous = self._plate_reads.get(track.track_id)
             if previous is None or read.ocr_confidence > previous.ocr_confidence:
                 self._plate_reads[track.track_id] = read
