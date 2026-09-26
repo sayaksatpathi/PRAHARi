@@ -23,13 +23,14 @@ Modules per clip: **detection** · **tracking** (ByteTrack) · **ANPR** (fast-al
 
 ## Results (RTX 4050, GPU, ~120 frames/clip)
 
-| Case (CCTV clip) | Detection | Tracking (person) | ANPR | SAM 2 masks | Face |
-|------------------|-----------|-------------------|------|-------------|------|
-| **Line crossing** — high-angle junction | person ×2549, car ×270, bus ×33, truck ×32, bike ×22, moto ×18 | **335 tracks (178 concurrent)** | 0 | 23 (~149 ms) | 56 |
-| **Crowd / group** — high-angle busy street | person ×1396, car ×732, bus ×36, truck ×34 | 183 tracks (107 concurrent) | 0 | 16 (~143 ms) | 21 |
-| **Night movement** — low-light street | person ×1651, bike ×94, moto ×31, car ×3 | 211 tracks (98 concurrent) | 0 | 18 (~142 ms) | 38 |
-| **Vehicle / traffic** — high-angle road | car ×38, person ×32 | 3 tracks | 0 | 4 (~165 ms) | 0 |
-| **Animal / livestock** — herd | **cattle ×120 (0 person)** | — | — | — | — |
+| Case (CCTV clip) | Detection | Tracking (person) | ANPR (fast-alpr) | SAM 2 masks | Face |
+|------------------|-----------|-------------------|------------------|-------------|------|
+| **Gate / chokepoint** — close plates (CAM-011 case) | plate close-ups | — | **80 reads, 36 unique — `555ZBF` 0.95, `1RQT648` 0.94, `1ESR563` 0.93** | — | — |
+| **Line crossing** — high-angle junction | person ×2549, car ×270, bus ×33, truck ×32, bike ×22, moto ×18 | **335 tracks (178 concurrent)** | 52 reads, 51 unique (partial) | 23 (~149 ms) | 56 |
+| **Crowd / group** — high-angle busy street | person ×1396, car ×732, bus ×36, truck ×34 | 183 tracks (107 concurrent) | 58 reads, 42 unique | 16 (~143 ms) | 21 |
+| **Night movement** — low-light street | person ×1651, bike ×94, moto ×31, car ×3 | 211 tracks (98 concurrent) | 1 read (small/distant) | 18 (~142 ms) | 38 |
+| **Vehicle / traffic** — high-angle road | car ×38, person ×32 | 3 tracks | 1 read (small/distant) | 4 (~165 ms) | 0 |
+| **Animal / livestock** — herd | **cattle ×120 (0 person)** | — | 0 (correct) | — | — |
 
 ## Honest reading, per module (on CCTV-perspective footage)
 
@@ -43,11 +44,17 @@ Modules per clip: **detection** · **tracking** (ByteTrack) · **ANPR** (fast-al
   real-footage sanity check of the SAM 2 ONNX backend (previously UNVALIDATED).
 - **Face (YuNet)** fires on people in the fixed-camera scenes (56 / 38 / 21 frames)
   and correctly returns nothing on the animal clip.
-- **ANPR reads 0** on every clip: a fixed wide CCTV view has **no close, frontal,
-  legible plate**, which is exactly when Prahari's capability certificate
-  **declines** to read — the design working, not a failure. The real ANPR proof is
-  the close-plate **Awiros Indian-plate 4/4** (see benchmark-matrix). Point this
-  same harness at a gate/chokepoint clip with a legible plate and it reports the read.
+- **ANPR now reads real plates on real footage.** On the **gate/chokepoint** clip
+  (the CAM-011 "Main Gate - Vehicle Lane" case) fast-alpr returns **36 unique plates,
+  top `555ZBF` at 0.95 confidence**; on the wide junction/crowd clips it still reads
+  partial plates off passing cars (lower confidence, as expected at distance). The
+  per-frame variants (`555ZBF`/`5557BF`, `1ESR563`/`IESR563`) are OCR jitter that
+  Prahari's `RepeatPlateTracker` temporal aggregation converges.
+  - **Bug fixed in the process (important):** `prahari/edge/anpr.py` did
+    `float(ocr.confidence)`, but this fast-alpr version returns the OCR confidence as
+    a **per-character list** → `TypeError` → **every real plate read was silently
+    dropped**, in this harness *and in the live pipeline*. Added `_conf_scalar()` to
+    average list/array confidences; ANPR now returns reads instead of nothing.
 - **Note on unsuitable footage:** an earlier night top-view clip was a **light-trail
   timelapse** (vehicles as streaks) and yielded almost nothing — a useful reminder
   that Prahari needs real-time CCTV frames, not timelapse. It was replaced with a

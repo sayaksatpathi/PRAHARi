@@ -94,16 +94,23 @@ def run_clip(video: Path, case: str, stride: int, max_frames: int,
             track_ids.add(t.track_id)
         max_concurrent = max(max_concurrent, len(persons))
 
-        # ANPR on the most confident vehicle
+        # ANPR: read the most confident vehicle; for a gate/chokepoint case (or
+        # when no vehicle box is found) also run fast-alpr on the full frame, which
+        # runs its own plate detector and finds a close plate anywhere in view.
         if anpr is not None:
+            targets = []
             veh = [d for d in dets if d.object_class in VEHICLE]
             if veh:
-                v = max(veh, key=lambda d: d.confidence)
+                targets.append(max(veh, key=lambda d: d.confidence).bbox)
+            if ("anpr" in case or "gate" in case) or not veh:
+                targets.append(BBox(x1=0, y1=0, x2=float(w), y2=float(h)))
+            for tb in targets:
                 try:
-                    pr = anpr.read(frame, v.bbox)
+                    pr = anpr.read(frame, tb)
                     if pr and getattr(pr, "text", ""):
                         plates.append({"text": pr.text,
-                                       "conf": round(float(getattr(pr, "confidence", 0)), 3)})
+                                       "conf": round(float(pr.ocr_confidence), 3)})
+                        break
                 except Exception:               # noqa: BLE001
                     pass
 
@@ -143,6 +150,9 @@ def run_clip(video: Path, case: str, stride: int, max_frames: int,
         "tracking": {"unique_person_tracks": len(track_ids),
                      "max_concurrent_persons": max_concurrent},
         "anpr": {"backend": anpr_note, "plate_reads": len(plates),
+                 "unique_plates": len({p["text"] for p in plates}),
+                 "top": sorted({p["text"]: p["conf"] for p in plates}.items(),
+                               key=lambda kv: -kv[1])[:8],
                  "samples": plates[:10]},
         "segmentation": {"backend": seg_backend, "masks_produced": len(masks),
                          "mean_area_fraction": round(float(np.mean([m[0] for m in masks])), 4) if masks else 0.0,
@@ -194,8 +204,9 @@ def main() -> int:
         print(f"  frames {r['frames_scored']} on {r['device']} | det {d}")
         print(f"  tracks {r['tracking']['unique_person_tracks']} person "
               f"(max {r['tracking']['max_concurrent_persons']} concurrent)")
-        print(f"  ANPR ({r['anpr']['backend']}): {r['anpr']['plate_reads']} reads "
-              f"{[p['text'] for p in r['anpr']['samples'][:5]]}")
+        print(f"  ANPR ({r['anpr']['backend']}): {r['anpr']['plate_reads']} reads, "
+              f"{r['anpr']['unique_plates']} unique "
+              f"{[f'{t}:{c}' for t, c in r['anpr']['top'][:5]]}")
         print(f"  SAM/{r['segmentation']['backend']}: {r['segmentation']['masks_produced']} masks, "
               f"mean area {r['segmentation']['mean_area_fraction']}, "
               f"{r['segmentation']['mean_latency_ms']}ms")

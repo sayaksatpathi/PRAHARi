@@ -32,10 +32,30 @@ CLIPS = {
 }
 URL = "https://assets.mixkit.co/videos/{id}/{id}-{res}.mp4"
 
+# Direct-URL clips (Pexels) for cases needing a specific view. The gate/chokepoint
+# clip has close, legible plates — the CAM-011 "Main Gate - Vehicle Lane" case where
+# Prahari's certificate actually grants ANPR.
+DIRECT = {
+    "gate_anpr": ("https://videos.pexels.com/video-files/12405634/"
+                  "12405634-hd_1920_1080_30fps.mp4", "pexels 12405634, royalty-free"),
+}
+
 
 def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
     manifest = []
+    for case, (url, src) in DIRECT.items():
+        dst = OUT / f"{case}.mp4"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=90) as r:
+                data = r.read()
+            dst.write_bytes(data)
+            manifest.append({"case": case, "path": f"data/testing/border_cases/{case}.mp4",
+                             "source": src})
+            print(f"{case:18} {src.split(',')[0]} {len(data)//1024}KB")
+        except Exception:                        # noqa: BLE001
+            print(f"{case:18} FAILED")
     for case, vid in CLIPS.items():
         dst = OUT / f"{case}.mp4"
         got = None

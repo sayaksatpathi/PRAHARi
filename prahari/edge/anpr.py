@@ -114,6 +114,32 @@ def normalise_plate(text: str) -> tuple[str, bool]:
     return cleaned, False
 
 
+def _conf_scalar(value: Any) -> float:
+    """Coerce a confidence to a float.
+
+    Some fast-alpr / OCR versions return the OCR confidence as a per-character
+    list (or numpy array) rather than a single float. Treat a sequence as the mean
+    of its numeric entries, a scalar as itself, and anything empty/None as 0.0.
+    Without this, ``float(confidence)`` raised ``TypeError: ... not 'list'`` and
+    every real plate read was silently dropped.
+    """
+    if value is None:
+        return 0.0
+    if isinstance(value, (list, tuple)):
+        vals = [float(v) for v in value if isinstance(v, (int, float))]
+        return float(sum(vals) / len(vals)) if vals else 0.0
+    try:
+        import numpy as _np
+        if isinstance(value, _np.ndarray):
+            return float(value.mean()) if value.size else 0.0
+    except Exception:                       # noqa: BLE001
+        pass
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 class PlateReader(abc.ABC):
     """Reads a plate from a vehicle crop."""
 
@@ -173,8 +199,8 @@ class FastAlprReader(PlateReader):
         if not results:
             return None
 
-        best = max(results, key=lambda r: getattr(
-            getattr(r, "ocr", None), "confidence", 0.0) or 0.0)
+        best = max(results, key=lambda r: _conf_scalar(getattr(
+            getattr(r, "ocr", None), "confidence", 0.0)))
         ocr = getattr(best, "ocr", None)
         text = (getattr(ocr, "text", "") or "").strip()
         if not text:
@@ -197,8 +223,8 @@ class FastAlprReader(PlateReader):
         return PlateRead(
             text=text,
             text_normalised=normalised,
-            ocr_confidence=float(getattr(ocr, "confidence", 0.0) or 0.0),
-            detection_confidence=float(getattr(det, "confidence", 0.0) or 0.0),
+            ocr_confidence=_conf_scalar(getattr(ocr, "confidence", 0.0)),
+            detection_confidence=_conf_scalar(getattr(det, "confidence", 0.0)),
             plate_bbox=plate_box,
             plate_width_px=width,
             above_threshold=width >= MIN_PLATE_WIDTH_PX,
