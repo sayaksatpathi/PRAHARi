@@ -18,14 +18,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "data/testing/border_cases"
 
-# case -> Mixkit video id. Chosen to stress a specific border condition; the actual
-# module outputs are reported by test_border_cases.py, not assumed here.
+# case -> Mixkit video id. CCTV-PERSPECTIVE clips only: fixed, elevated/high-angle,
+# wide-scene — the way Prahari actually deploys (mounted CCTV, not drones or
+# cinematic close-ups). The actual module outputs are reported by
+# test_border_cases.py, not assumed here.
 CLIPS = {
-    "animal_livestock": "10219",   # cattle/cows — person/animal class confusion
-    "night_movement":   "303",     # night city — low-light detection
-    "vehicle_anpr":     "34562",   # cars/traffic — vehicle detection + ANPR
-    "aerial_perimeter": "2168",    # aerial — range / far-field perimeter
-    "crowd_group":      "13192",   # crowd — group movement / dense tracking
+    "line_crossing":    "4401",    # high-angle junction, people crossing (fixed cam)
+    "crowd_group":      "4000",    # high-angle busy city street (people + vehicles)
+    "night_movement":   "3428",    # low-light street, people walking at dusk
+    "vehicle_traffic":  "3218",    # high-angle street car traffic (fixed cam, daytime)
+    "animal_livestock": "10219",   # cattle — person/animal class confusion (not a
+                                   # CCTV angle; kept only to test class labelling)
 }
 URL = "https://assets.mixkit.co/videos/{id}/{id}-{res}.mp4"
 
