@@ -726,6 +726,15 @@ class CameraPipeline:
             cv2.putText(canvas, msg, (8, h - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.42,
                         (120, 200, 255), 1, cv2.LINE_AA)
 
+        # Downscale the preview so several tiles can stream at once without
+        # saturating the browser's per-host connection/bandwidth budget. A full
+        # 1080p real frame is ~10 MB/s per camera; five of those starve most
+        # tiles to black. A 960-wide preview is ample for the dashboard.
+        ph, pw = canvas.shape[:2]
+        if pw > 960:
+            scale = 960.0 / pw
+            canvas = cv2.resize(canvas, (960, int(round(ph * scale))),
+                                interpolation=cv2.INTER_AREA)
         ok, buf = cv2.imencode(".jpg", canvas, [int(cv2.IMWRITE_JPEG_QUALITY), 72])
         if ok:
             self._latest_jpeg = buf.tobytes()

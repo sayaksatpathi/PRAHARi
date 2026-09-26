@@ -1193,7 +1193,8 @@ const Views = (() => {
         </tbody></table>`
         : '<div class="empty">No patrol profiles declared. Without one, every event takes the normal alert path.</div>';
 
-      const matched = (events || []).filter(e => e.patrol && e.patrol.decision !== 'not_matched');
+      const eventList = Array.isArray(events) ? events : (events && events.events) || [];
+      const matched = eventList.filter(e => e.patrol && e.patrol.decision !== 'not_matched');
       const eEl = document.getElementById('pt-events');
       if (eEl) eEl.innerHTML = matched.length ? `
         <table><thead><tr><th>Time</th><th>Camera</th><th>Event</th>

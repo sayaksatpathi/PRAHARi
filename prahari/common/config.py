@@ -44,7 +44,10 @@ class Settings(BaseSettings):
 
     # --- Inference ---------------------------------------------------------
     detector: str = "auto"          # auto | onnx | synthetic
-    model_path: Path = Path("./models/yolo.onnx")
+    # The real, manifest-signed detector that ships in the repo. "auto" loads it
+    # and only falls back to the clearly-labelled synthetic detector if it is
+    # genuinely absent — so the demo runs real inference on real footage.
+    model_path: Path = Path("./models/yolox_s.onnx")
     # Inference resolution. 0 reads it from the model's own input shape, which
     # is right for a fixed-size export. An export with dynamic spatial dims has
     # no size to read, and the same weights at a different input resolution is

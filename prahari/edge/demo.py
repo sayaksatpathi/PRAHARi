@@ -24,6 +24,7 @@ are simulated, and the dashboard badges them.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from prahari.common.config import Settings
 from prahari.common.db import Database
@@ -42,10 +43,44 @@ from prahari.edge.sources.simulator import SimulatedCamera
 
 log = logging.getLogger("prahari.demo")
 
+# Real footage for the live-camera demo. Each clip is looped by StreamSource, and
+# the real ONNX detector runs on it, so the dashboard shows genuine detections and
+# tracks on real video rather than a synthetic scene. Falls back to the simulator
+# per camera if a clip is missing, so the demo never hard-fails on a fresh clone.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_REAL_CLIPS = _REPO_ROOT / "data" / "testing" / "real_world"
+_CAM_CLIPS = {
+    "CAM-011": "pexels_13258882_people_cars_street.mp4",   # gate: people + vehicles
+    "CAM-014": "pexels_8126410_pedestrian_crossing.mp4",   # perimeter: pedestrians
+    "CAM-022": "pexels_3552510_street_people_walking.mp4",  # open-border approach
+    "CAM-031": "pexels_3700915_subway_pedestrians.mp4",    # dense pedestrian flow
+    "CAM-045": "pexels_8126410_pedestrian_crossing.mp4",   # legacy south track
+}
+
+
+def _apply_real_sources(cameras: list[Camera]) -> list[Camera]:
+    """Point each demo camera at its real clip when the file is present.
+
+    Keeps ``sim_profile`` intact (zone geometry and normalcy seeding derive from
+    it), only switching the runtime frame producer to the looping file source.
+    """
+    for cam in cameras:
+        name = _CAM_CLIPS.get(cam.camera_id)
+        if not name:
+            continue
+        clip = _REAL_CLIPS / name
+        if clip.exists():
+            cam.source_kind = "file"
+            cam.stream_url = str(clip)
+        else:
+            log.warning("real clip missing for %s (%s) — keeping simulator",
+                        cam.camera_id, clip)
+    return cameras
+
 
 def demo_cameras(node_id: str) -> list[Camera]:
     """Five cameras that should each end up with a different capability set."""
-    return [
+    return _apply_real_sources([
         Camera(
             camera_id="CAM-011",
             name="Main Gate - Vehicle Lane",
@@ -128,7 +163,7 @@ def demo_cameras(node_id: str) -> list[Camera]:
                          "camera_height_m": 4.5, "tilt_deg": 3.0,
                          "fence_distance_m": 35.0},
         ),
-    ]
+    ])
 
 
 def _fence_row_normalised(sim: SimulatedCamera) -> float:
