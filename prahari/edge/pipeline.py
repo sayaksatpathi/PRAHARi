@@ -253,6 +253,18 @@ class CameraPipeline:
                 candidates = await loop.run_in_executor(None, self._process_frame)
             except asyncio.CancelledError:
                 raise
+            except RuntimeError as exc:
+                # The event loop or its executor is tearing down (e.g. process
+                # shutdown, or a test whose loop closed before stop()). There is
+                # no runtime left to schedule on, so exit the loop instead of
+                # spinning and logging every interval.
+                msg = str(exc).lower()
+                if "shutdown" in msg or "event loop is closed" in msg:
+                    log.debug("pipeline %s stopping: runtime shutting down",
+                              self.camera.camera_id)
+                    break
+                log.exception("pipeline error on %s", self.camera.camera_id)
+                candidates = []
             except Exception:
                 log.exception("pipeline error on %s", self.camera.camera_id)
                 candidates = []
