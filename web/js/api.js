@@ -145,6 +145,15 @@ const API = (() => {
     },
     event:       (id) => request('/api/events/' + encodeURIComponent(id)),
     evidenceUrl: (id, kind) => `/api/events/${encodeURIComponent(id)}/evidence/${kind}`,
+    // Evidence is auth-gated and a media element's src cannot carry the bearer
+    // token, so fetch it with the token and hand back an object URL.
+    evidenceBlob: async (id, kind) => {
+      const res = await fetch(
+        `/api/events/${encodeURIComponent(id)}/evidence/${kind}`,
+        { headers: token ? { 'Authorization': 'Bearer ' + token } : {} });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return URL.createObjectURL(await res.blob());
+    },
 
     acknowledge: (id, feedback, note) =>
       request(`/api/alerts/${encodeURIComponent(id)}/acknowledge`,

@@ -237,10 +237,10 @@ const Views = (() => {
             </div>
             <div class="panel-body flush">
               ${hasClip
-                ? `<video src="${API.evidenceUrl(ev.event_id, 'clip')}" controls
+                ? `<video data-evkind="clip" controls
                           style="width:100%;display:block;background:#05080c"></video>`
-                : `<img src="${API.evidenceUrl(ev.event_id, 'frame')}" alt="Trigger frame"
-                        style="width:100%;display:block">`}
+                : `<img data-evkind="frame" alt="Trigger frame"
+                        style="width:100%;display:block;background:#05080c;min-height:120px">`}
             </div>
           </div>
 
@@ -319,6 +319,23 @@ const Views = (() => {
              <span class="mono dim small">${esc(ev.event_id)}</span></span>`,
           body,
           (root) => {
+            // Evidence is auth-gated, but a <video>/<img> src cannot carry the
+            // bearer token, so a direct src returns 401 and the player stays
+            // black. Fetch it with the token, wrap it in an object URL, and hand
+            // that to the element. The URL is revoked when the modal closes.
+            const media = root.querySelector('[data-evkind]');
+            if (media) {
+              const kind = media.getAttribute('data-evkind');
+              API.evidenceBlob(ev.event_id, kind)
+                .then((url) => {
+                  media.src = url;
+                  media.addEventListener('error', () =>
+                    toast('Evidence failed to load', 'bad'), { once: true });
+                  const revoke = () => URL.revokeObjectURL(url);
+                  document.addEventListener('prahari:modal-close', revoke, { once: true });
+                })
+                .catch((e) => toast('Evidence unavailable: ' + e.message, 'bad'));
+            }
             root.querySelectorAll('[data-ack]').forEach(btn => {
               btn.addEventListener('click', async () => {
                 const fb = btn.getAttribute('data-ack');

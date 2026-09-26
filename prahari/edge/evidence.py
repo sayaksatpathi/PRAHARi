@@ -248,25 +248,59 @@ class EvidenceStore:
         if first is None:
             return None, "", 0.0, 0
         h, w = first.shape[:2]
+        # H.264 + yuv420p require even dimensions.
+        h -= h % 2
+        w -= w % 2
 
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        writer = cv2.VideoWriter(str(clip_path), fourcc, max(1.0, fps), (w, h))
-        if not writer.isOpened():
-            log.error("could not open video writer for %s", clip_path)
-            return None, "", 0.0, 0
-        try:
+        def _decoded():
             for _, jpeg in frames:
                 arr = cv2.imdecode(np.frombuffer(jpeg, dtype=np.uint8), cv2.IMREAD_COLOR)
                 if arr is None:
                     continue
                 if arr.shape[:2] != (h, w):
                     arr = cv2.resize(arr, (w, h))
-                writer.write(arr)
-        finally:
-            writer.release()
+                yield arr
+
+        # Write H.264 (yuv420p) via the bundled ffmpeg so the operator's evidence
+        # viewer can actually play the clip. OpenCV's FFMPEG build here has no
+        # H.264 encoder and falls back to mp4v, which HTML5 <video> cannot decode
+        # — the clip would exist and hash correctly yet show a black player.
+        wrote = False
+        try:
+            import imageio
+
+            writer = imageio.get_writer(
+                str(clip_path), format="FFMPEG", mode="I", fps=max(1.0, fps),
+                codec="libx264", pixelformat="yuv420p", macro_block_size=None,
+                output_params=["-movflags", "+faststart"],
+            )
+            try:
+                for arr in _decoded():
+                    writer.append_data(cv2.cvtColor(arr, cv2.COLOR_BGR2RGB))
+            finally:
+                writer.close()
+            wrote = clip_path.exists() and clip_path.stat().st_size > 0
+        except Exception:
+            log.exception("H.264 clip write failed for %s; falling back to mp4v",
+                          clip_path)
+
+        if not wrote:
+            # Last resort: keep the evidence even if the browser cannot play it.
+            writer = cv2.VideoWriter(str(clip_path), cv2.VideoWriter_fourcc(*"mp4v"),
+                                     max(1.0, fps), (w, h))
+            if not writer.isOpened():
+                log.error("could not open any video writer for %s", clip_path)
+                return None, "", 0.0, 0
+            try:
+                for arr in _decoded():
+                    writer.write(arr)
+            finally:
+                writer.release()
 
         duration = frames[-1][0] - frames[0][0]
         size = clip_path.stat().st_size if clip_path.exists() else 0
+        if size == 0:
+            return None, "", 0.0, 0
         return clip_path, sha256_file(clip_path), round(duration, 2), size
 
     def evict_clip(self, ref: EvidenceRef) -> int:

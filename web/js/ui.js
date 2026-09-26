@@ -133,6 +133,8 @@ const UI = (() => {
 
   function closeModal() {
     document.getElementById('modal-root').innerHTML = '';
+    // Let modal content release resources (e.g. revoke evidence object URLs).
+    document.dispatchEvent(new CustomEvent('prahari:modal-close'));
   }
 
   document.addEventListener('keydown', (e) => {
