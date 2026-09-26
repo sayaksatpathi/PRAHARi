@@ -23,7 +23,7 @@ not faked). Nothing here reports a fabricated field number.
 
 | # | Audit issue | Prior status | Outcome | Evidence |
 |---|-------------|-------------|---------|----------|
-| 1 | No field/border validation | Still open | **OPEN — blocked; kit delivered** | [field-validation-kit.md](field-validation-kit.md) |
+| 1 | No field/border validation | Still open | **PROXY-VALIDATED across border conditions; real Indian border footage still the ask** | night (thermal AP 0.29), range (VisDrone AP 0.30), pattern-of-life (Ped2 AUC 0.907), daylight (MOT17 0.40–0.44) — matrix in [field-validation-kit.md §0](field-validation-kit.md) |
 | 2 | Weak MOT result | YOLOX-S 0.397/0.508 production | **CLOSED — beaten & reproduced** | yolov8m@1280 → MOTA **0.4351** / IDF1 **0.5601** on GPU (`var/mot_yolov8m_1280.json`) |
 | 3 | YOLOv8 pipeline bug | Fixed | **VERIFIED** | reproduced sane strong numbers (item 2) |
 | 4 | Reproducible MOT evaluation | Done | **VERIFIED** | independently re-run on GPU, `scripts/eval_mot_tracking.py` |
@@ -37,10 +37,13 @@ not faked). Nothing here reports a fabricated field number.
 | 12 | Thermal/Re-ID validation | Still open | **MEASURED (thermal det.) + stress-tested (Re-ID) + true harness ready** | thermal det. AP@0.5 **0.289** (prec 0.88/rec 0.27) on real LWIR; Re-ID 0.705→0.057 stress test; RegDB/KKWETC harnesses ready (gated) — [thermal-validation.md](thermal-validation.md) |
 | 13 | Operator testing | Still open | **EXECUTED — 9/9 tasks on the live app** | expert walkthrough on the running node; 2 minor UI bugs found & fixed; SUS/real-operator study remains — [operator-testing.md §9](operator-testing.md) |
 
-**Summary: 8 closed/verified · 3 advanced/measured (real generic data; gated or
-field data pending for the final step) · 1 executed (operator walkthrough 9/9;
-statistical real-operator study still owed) · 1 open-blocked (field validation)
-with kit delivered.** (Items 3/4/5 fold into the item-2 GPU run.)
+**Summary: 8 closed/verified · 4 measured on real data (proxies or generic sets;
+the domain-specific/gated/field final step still owed) · 1 executed (operator
+walkthrough 9/9; statistical real-operator study still owed).** Every one of the 13
+audit lines now has real measured evidence or an executed run; the only things that
+remain are inherently external — real Indian border footage, gated VI-ReID/KKWETC
+datasets, and recruited operators — each with a ready harness. (Items 3/4/5 fold
+into the item-2 GPU run.)
 
 ---
 
@@ -112,12 +115,19 @@ remaining, honestly-scoped step is the **statistical** study — task-success ra
 time-on-task and **SUS** from **5–8 real operators** (native Hindi/Bengali
 speakers). Full run write-up in [operator-testing.md §9](operator-testing.md).
 
-### Open — blocked (kits delivered, honest ask)
+### Proxy-validated; real Indian border footage still the ask
 
-**1 — Field/border validation.** The #1 gap. The harness, MOT-format adapter,
-metrics and proposed acceptance criteria are built and run on real annotated
-footage today; the ask is one real border feed / pilot.
-[field-validation-kit.md](field-validation-kit.md).
+**1 — Field/border validation.** Now measured across border-condition **proxies**
+on real public datasets (each labelled a proxy, not real border footage): night
+(thermal AP@0.5 **0.29**), range/far-field perimeter (VisDrone aerial AP@0.5
+**0.30**), open-border pattern-of-life (UCSD Ped2 frame-AUC **0.907**), and daylight
+tracking (MOT17 MOTA **0.40–0.44**) — coverage matrix in
+[field-validation-kit.md §0](field-validation-kit.md). Consistent honest finding on
+the hard conditions: high precision (~0.9), low recall (~0.25) — the RGB detector
+misses most small/distant/thermal targets and needs domain models. What proxies
+**cannot** establish is real Indian border performance (night/range/fog, fog-lensed
+domes, livestock confusion); that needs a real feed / pilot and stays the honest
+ask, harness ready.
 
 **12 — Thermal / cross-modal Re-ID.** Now measured on real generic data (labelled
 non-Indian): **thermal person detection AP@0.5 0.289** (precision 0.88, recall

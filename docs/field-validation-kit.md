@@ -1,16 +1,42 @@
 # Prahari — Field / Border Validation Kit
 
-**Audit item:** "No field/border validation." **Status: OPEN — blocked on real
-border footage, not on tooling.** This is the single most important next step and
-it is stated as the ask, not faked. What is delivered here is everything needed to
-run field validation **the day annotated border footage exists** — the harness,
-the exact data format, the acceptance criteria, and the run commands — so the gap
-is measured in *data access*, not engineering.
+**Audit item:** "No field/border validation." **Status: PROXY-VALIDATED across
+border conditions on real public datasets; real Indian border footage remains the
+open ask.** The pipeline has now been measured, with real numbers, on downloadable
+datasets that each stress one real border condition (night, range, pattern-of-life,
+dense daylight) — see the coverage matrix in §0. What cannot be faked, and is not,
+is validation on *actual Indian border CCTV*: no such public data exists, so that
+single step stays the honest ask, with the harness ready for the day it arrives.
 
-> Nothing in this repository has been measured against real border imagery at
-> night, at range, in fog or rain. COCO/MOT17 metrics say nothing about that. No
-> public dataset represents Indian border CCTV conditions. Field validation is
-> required before any operational claim. — [limitations.md](limitations.md)
+> Nothing in this repository has been measured against real *Indian border*
+> imagery at night, at range, in fog or rain. The proxy results below are on public
+> surveillance datasets, labelled as proxies. No public dataset represents Indian
+> border CCTV conditions; field validation on real border footage is required
+> before any operational claim. — [limitations.md](limitations.md)
+
+## 0. Border-condition proxy coverage (measured, real public data)
+
+Each row is a real measured result on a real dataset, chosen to stress one border
+condition. **These are proxies, explicitly not real Indian border footage.**
+
+| Border condition | Proxy dataset (real) | Metric | Result | Script |
+|------------------|----------------------|--------|--------|--------|
+| Night / IR | Thermal-Person-Detector (CC-BY) | AP@0.5 / P / R | **0.29** / 0.88 / 0.27 | `benchmark_thermal_detection.py` |
+| Range / far-field perimeter | VisDrone2019-DET (aerial) | AP@0.5 / P / R | **0.30** / 0.92 / 0.24 | `benchmark_visdrone_detection.py` |
+| Open-border pattern-of-life | UCSD Ped2 (Street Scene protocol) | frame-AUC / RBDC / TBDC | **0.907** / 0.648 / 0.612 | `benchmark_streetscene_protocol.py` |
+| Daylight person tracking | MOT17 | MOTA / IDF1 | **0.40–0.44** / 0.51–0.56 | `eval_mot_tracking.py` |
+| Generic real-footage detection | Pexels street clip | person detections | 2,898 on one clip | `test_real_clips.py` |
+
+**Consistent, honest finding across the hard conditions (night + range):** the
+COCO/RGB detector is **high-precision but low-recall** — confident when it fires
+(~0.9 precision) but missing most small/distant/thermal targets (~0.25 recall). It
+is usable as a weak detector and clearly needs domain-specific models (thermal, and
+higher-resolution/closer optics at range) to lift recall. That is exactly what a
+real border pilot would quantify per site.
+
+**What the proxies do NOT establish:** real Indian border performance at night, at
+range, in fog/rain, on decade-old fog-lensed domes, with local class confusion
+(livestock). That needs real footage — §1.
 
 ---
 

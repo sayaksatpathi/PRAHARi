@@ -459,8 +459,12 @@ A judge can understand Prahari from these pointers without reading the code.
 > Re-ID stress-tested, with the true RegDB harness ready
 > ([docs/thermal-validation.md](docs/thermal-validation.md)); operator testing was
 > executed on the live app (9/9 tasks, [docs/operator-testing.md](docs/operator-testing.md)).
-> Only real border **field** validation stays open by necessity — with a
-> ready-to-run kit.
+> Field validation is now measured across border-condition **proxies** on real
+> public data — night (thermal AP 0.29), range (VisDrone AP 0.30), pattern-of-life
+> (Ped2 AUC 0.907), daylight (MOT17) — labelled as proxies
+> ([docs/field-validation-kit.md](docs/field-validation-kit.md) §0). The only steps
+> that remain are inherently external: real Indian border footage, the gated
+> VI-ReID/KKWETC datasets, and recruited operators — each with a ready harness.
 
 - **Problem** — extract intelligence from *existing* border CCTV, edge-first,
   evidence-backed, resilient to uplink loss (top of this README).
