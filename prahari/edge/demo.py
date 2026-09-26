@@ -267,20 +267,30 @@ def bootstrap_demo_site(db: Database, settings: Settings) -> list[Camera]:
         # zone's hourly count against that same zone's own total. A zone with no
         # baseline at all reads as infinitely unusual, which pinned every event
         # at maximum priority.
-        for cls, busy in ((ObjectClass.PERSON, range(7, 19)),
-                          (ObjectClass.CATTLE, range(6, 18))):
-            normalcy.seed_baseline(camera.camera_id, cls, busy_hours=busy)
+        #
+        # The demo footage is real Indian street video that is busy at every hour
+        # (it is not tied to wall-clock time), so the baseline is seeded busy
+        # across all 24 hours. Otherwise the busy footage played at, say, 9pm
+        # reads as "unusual for this hour", pins every crossing to CRITICAL and
+        # buries the operator — the exact false-alarm flood pattern-of-life is
+        # meant to prevent. With a realistic all-hours baseline, a routine
+        # crossing is pattern-of-life (rationed by the alert budget) and only a
+        # genuine spike stands out.
+        # Seeded high because the footage is genuinely dense (hundreds of
+        # crossings an hour). The normalcy model compares the recent live rate
+        # against expected_recent = bucket/6, so the per-hour baseline must be a
+        # few hundred for a busy thoroughfare to read as routine (ratio <= 1.3)
+        # rather than as an ongoing anomaly. Then routine crossings take the
+        # pattern-of-life downgrade and only genuine spikes stay high.
+        allday = range(0, 24)
+        for cls in (ObjectClass.PERSON, ObjectClass.CATTLE):
+            normalcy.seed_baseline(camera.camera_id, cls, busy_hours=allday,
+                                   busy_weight=420.0)
             for zone in zones:
-                # A lawful route carries real traffic; a restricted zone should
-                # normally be empty, and its baseline says so.
-                if zone.is_lawful_route:
-                    normalcy.seed_baseline(camera.camera_id, cls, busy_hours=busy,
-                                           zone_id=zone.zone_id)
-                else:
-                    normalcy.seed_baseline(camera.camera_id, cls,
-                                           busy_hours=range(0, 24),
-                                           busy_weight=0.5, quiet_weight=0.5,
-                                           zone_id=zone.zone_id)
+                normalcy.seed_baseline(
+                    camera.camera_id, cls, busy_hours=allday,
+                    busy_weight=300.0 if zone.is_lawful_route else 220.0,
+                    zone_id=zone.zone_id)
 
     db.audit("system", "demo.bootstrap", settings.node_id,
              {"cameras": [c.camera_id for c in cameras],

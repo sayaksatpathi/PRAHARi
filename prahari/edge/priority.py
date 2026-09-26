@@ -54,6 +54,25 @@ BASE_WEIGHT: dict[EventType, float] = {
     EventType.STREAM_REPLAY_SUSPECTED: 0.82,
 }
 
+# Movement/tripwire events whose alarm depends on how routine crossings are for
+# this camera: heavy learnt traffic makes a single one pattern-of-life, not an
+# intrusion. Security events (tamper, replay, offline) are never downgraded this
+# way — a painted-over lens is not more acceptable on a busy camera.
+_ROUTINE_MOVEMENT = frozenset({
+    EventType.LINE_CROSSING,
+    EventType.ZONE_INTRUSION,
+    EventType.WRONG_DIRECTION,
+    EventType.OFF_ROUTE_MOVEMENT,
+    EventType.VEHICLE_MOVEMENT,
+    EventType.GROUP_MOVEMENT,
+    # In a dense crowd, apparent "erratic movement" and brief loitering are
+    # overwhelmingly tracking jitter and people milling, not intent. On a camera
+    # that has learnt to be busy these are pattern-of-life too; the genuinely
+    # anomalous ones still surface through the alert budget.
+    EventType.SUSPICIOUS_ACTIVITY,
+    EventType.LOITERING,
+})
+
 # How much each class raises or lowers concern, independent of the rule.
 CLASS_WEIGHT: dict[ObjectClass, float] = {
     ObjectClass.PERSON: 0.10,
@@ -77,6 +96,7 @@ class ScoringContext:
     is_night: bool = False
     normalcy_ratio: float = 1.0        # observed / expected for this bucket; >1 is unusual
     normalcy_samples: int = 0          # how much evidence the ratio rests on
+    normalcy_expected: float = 0.0     # absolute traffic this camera routinely sees here
     feedback_true: int = 0
     feedback_false: int = 0
     detection_confidence: float = 0.0
@@ -131,12 +151,22 @@ def score_event(
                 detail=(f"{ctx.normalcy_ratio:.1f}x the traffic this camera normally "
                         f"sees in this hour ({ctx.normalcy_samples} observations learnt)"),
             ))
-        elif ctx.normalcy_ratio <= 0.6:
-            w = -0.16 * confidence
+        elif ctx.normalcy_ratio <= 1.3:
+            # Normal-or-quiet traffic. A single crossing is only alarming where
+            # crossings are rare. On a thoroughfare the camera has learnt to be
+            # busy, a routine crossing is pattern-of-life, not an intrusion — so
+            # the downgrade grows with how much traffic this camera routinely
+            # sees. This is the whole point of pattern-of-life over tripwires:
+            # it stops a lawful-crossing flood from burying the real events.
+            w = -0.16
+            if event_type in _ROUTINE_MOVEMENT and ctx.normalcy_expected > 3.0:
+                w -= min(0.34, 0.045 * ctx.normalcy_expected)
+            w *= confidence
             factors.append(PriorityFactor(
-                name="routine for this time", weight=round(w, 3),
+                name="routine for this camera", weight=round(w, 3),
                 detail=(f"consistent with normal traffic here at this hour "
-                        f"({ctx.normalcy_samples} observations learnt)"),
+                        f"(expected ~{ctx.normalcy_expected:.0f}/bucket, "
+                        f"{ctx.normalcy_samples} observations learnt)"),
             ))
     elif ctx.normalcy_samples > 0:
         factors.append(PriorityFactor(

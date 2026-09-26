@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     # in the usual places. See that module for why the failure mode matters.
     cuda_dll_dir: Path | None = None
     inference_interval: int = 2     # run detector every Nth frame
-    detection_confidence: float = 0.35
+    detection_confidence: float = 0.45
     nms_iou: float = 0.45
 
     # --- ANPR --------------------------------------------------------------

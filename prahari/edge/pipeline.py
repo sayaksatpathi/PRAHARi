@@ -763,6 +763,7 @@ class CameraPipeline:
             is_night=bool(self.certificate and self.certificate.measurement.is_low_light),
             normalcy_ratio=verdict.ratio,
             normalcy_samples=verdict.samples,
+            normalcy_expected=verdict.expected,
             feedback_true=fb_true,
             feedback_false=fb_false,
             detection_confidence=track.confidence if track else 0.0,
