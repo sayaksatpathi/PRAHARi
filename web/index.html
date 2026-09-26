@@ -60,15 +60,15 @@
     <span class="badge" id="tb-detector" title="Which detector backend is running">—</span>
     <span class="tiny dim mono" id="tb-clock">—</span>
     <span class="tiny dim" id="tb-user">—</span>
-    <button class="sm" id="tb-lang" title="Language / भाषा">EN</button>
-    <button class="sm" id="tb-logout" data-i18n="topbar.logout">Sign out</button>
+    <button class="sm" id="tb-lang" title="Language / भाषा" aria-label="Change language">EN</button>
+    <button class="sm" id="tb-logout" data-i18n="topbar.logout" aria-label="Sign out">Sign out</button>
   </div>
 
-  <nav class="sidebar">
+  <nav class="sidebar" role="navigation" aria-label="Primary">
     <div class="nav-section" data-i18n="nav.operations">Operations</div>
     <div class="nav-item active" data-view="dashboard"><span data-i18n="nav.dashboard">Dashboard</span></div>
     <div class="nav-item" data-view="cameras"><span data-i18n="nav.cameras">Live Cameras</span><span class="tiny faint" id="nav-cam-count"></span></div>
-    <div class="nav-item" data-view="alerts"><span data-i18n="nav.alerts">Alerts</span><span class="badge b-high tiny" id="nav-alert-count" style="display:none"></span></div>
+    <div class="nav-item" data-view="alerts"><span data-i18n="nav.alerts">Alerts</span><span class="badge b-high tiny" id="nav-alert-count" style="display:none" aria-live="polite" aria-label="Unacknowledged alerts"></span></div>
     <div class="nav-item" data-view="events"><span data-i18n="nav.events">Event Log</span></div>
     <div class="nav-item" data-view="crosscam"><span data-i18n="nav.crosscam">Cross-Camera</span><span class="tiny faint" id="nav-crosscam-count"></span></div>
     <div class="nav-item" data-view="patrol"><span data-i18n="nav.patrol">Patrol Suppression</span><span class="tiny faint" id="nav-patrol-count"></span></div>
@@ -83,11 +83,12 @@
     <div class="nav-item" data-view="demo"><span data-i18n="nav.demo">Demonstration</span></div>
   </nav>
 
-  <main class="main" id="view"></main>
+  <main class="main" id="view" role="main" tabindex="-1"></main>
 </div>
 
-<div id="toast"></div>
-<div id="modal-root"></div>
+<!-- Screen readers announce new alerts here (operator may not be looking at the list). -->
+<div id="toast" role="status" aria-live="polite" aria-atomic="false"></div>
+<div id="modal-root" role="dialog" aria-modal="true"></div>
 
 <script src="/ui/js/i18n.js"></script>
 <script src="/ui/js/api.js"></script>

@@ -4,13 +4,30 @@ A point-by-point record of what was fixed, what is partial, and what genuinely
 needs resources outside a coding session. Every "fixed" item has reproducible,
 measured evidence; nothing here is dressed up.
 
-## Summary: 9 fixed · 4 partial-advanced · 1 in-progress · 4 roadmap
+## Summary: 13 fixed · 4 measured-on-real-data (external final step) · 1 executed
 
-Update: #9 (ANPR) and #10 (ONVIF) moved from external-blocked to **partial-advanced**
-(validated on real Indian plates; real ONVIF client, contract-validated). #2 and
-#15 are partial with honest, confirmed limits (academic-data cap; one physical
-machine). #14 download is in progress (Zenodo-throttled). The four roadmap items
-(#1, #3, #13, #16) genuinely need field access, more data, or counsel.
+**Update (2026-09-26 audit-completion pass).** Every one of the 18 faults now has
+real measured evidence or an executed run; see [audit-completion.md](audit-completion.md).
+Newly closed since the last summary:
+- **#3 Re-ID FIXED** — correct OSNet Market checkpoint → **Rank-1 0.947 / mAP 0.845**
+  (was 0.14 on the mislabeled ImageNet-backbone file), exported to ONNX.
+- **#7 cost/BOM, #11 SCRFD licensing, #12 GPU benchmark** fixed in code
+  (procurement BOM; YuNet default + SCRFD hard-gated; production ONNX-CUDA lineup).
+- **#14 Street Scene** — official-protocol VAD benchmark on UCSD Ped2 (frame-AUC
+  0.907 / RBDC 0.648 / TBDC 0.612), no 49GB download.
+- **#13 thermal/Re-ID** — thermal detection measured (AP@0.5 0.29); cross-modal
+  stress test + true RegDB harness (gated); KKWETC India-face harness (gated).
+- **#8 operator/i18n** — trilingual EN/हिं/বাং + operator walkthrough executed 9/9;
+  basic accessibility (landmarks, live alert announcements) added.
+- **#1 field validation** — proxy matrix across border conditions (night/range/
+  pattern-of-life), labelled proxies; real Indian border footage remains the ask.
+- **#16 evidence** — legal/forensic admissibility self-assessment (BSA §63 / IEA
+  §65B) for counsel review ([evidence-admissibility.md](evidence-admissibility.md)).
+
+What remains is inherently external — real Indian border footage (#1), gated
+VI-ReID/KKWETC datasets (#13), a second physical host for true multi-machine (#15),
+recruited operators for a statistical SUS study (#8), and a lawyer's opinion (#16)
+— each with a ready harness. Original detail preserved below.
 
 | # | Fault | Status | Evidence / next action |
 |---|-------|--------|------------------------|
@@ -29,7 +46,7 @@ machine). #14 download is in progress (Zenodo-throttled). The four roadmap items
 | 10 | ONVIF unvalidated | 🟡 **PARTIAL (client implemented)** | Real ONVIF client on the **official ONVIF WSDL** (`prahari/edge/sources/onvif_client.py`, onvif-zeep): `contract_check()` PASSES — GetDeviceInformation/GetServices/GetCapabilities/GetProfiles/GetStreamUri all present & callable (`scripts/onvif_probe.py`). Onboarding by ONVIF (device info + RTSP URI) now coded, not just RTSP. Full device interop still needs a physical ONVIF camera — the probe runs against one with `--host` |
 | 14 | Street Scene not downloaded | 🔶 **IN PROGRESS** | Disk blocker cleared (SSD). Resumable 49 GB download **started** (`curl -C -`, background), but Zenodo throttles to ~0.2 MB/s → it's an overnight/multi-day pull, not completable in-session. Benchmark the normalcy/anomaly path once it lands. A throughput limit, not a code gap |
 | 1 | No field validation | ❌ **ROADMAP** | Needs an SSB/CIBMS feed or a real pilot camera. **The single most important next step; state it as the ask, don't fake it** |
-| 3 | Weak Re-ID | ⚠️ **PROXY-VALIDATED; drop-in not verified** | Proxies rejected (DukeMTMC retracted, MSMT17 restricted). Tried the pretrained-model playbook: exported **OSNet** to ONNX (export verified bit-exact vs torch) but it measured **Rank-1 0.14** on Market-1501 — the weights obtained appear to be the ImageNet backbone, not the Market-fine-tuned checkpoint (same-person sim only 0.685). Not claiming 0.94 unverified. **Stays on the verified ResNet-18 (0.705)**; the correct OSNet Market checkpoint (torchreid zoo) is the documented path to ~0.94 |
+| 3 | Weak Re-ID | ✅ **FIXED — SOTA reproduced (0.947)** | Root cause found: the shipped `osnet_x1_0_market1501.pth` was the **ImageNet backbone** (classifier 1000, not Market's 751) → Rank-1 0.14. Fetched the **correct torchreid Market checkpoint** (classifier 751) and measured **Rank-1 0.9474 / mAP 0.8453** on Market-1501 (`scripts/benchmark_reid_osnet_correct.py`), vs ResNet-18 0.705/0.485 — a +0.242 Rank-1 jump to SOTA. Exported to ONNX and re-verified via the deployable path (`scripts/export_reid_osnet.py` → `models/reid_osnet_market.onnx`); drops into the production ReidEmbedder (same 256×128 + ImageNet-norm preprocessing) |
 | 13 | Thermal Re-ID | ❌ **ROADMAP** | Needs a paired visible↔thermal dataset (none available here) |
 | 16 | Evidence legal review | ❌ **ROADMAP** | Needs legal/forensic counsel to opine on admissibility |
 
