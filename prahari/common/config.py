@@ -81,7 +81,7 @@ class Settings(BaseSettings):
     # A learned re-ID embedding, used when present. Absent, the coordinator uses
     # the HSV histogram cue, which is tested and needs no download - the same
     # arrangement as SAM 2 and GrabCut.
-    reid_model_path: Path = Path("./models/reid.onnx")
+    reid_model_path: Path = Path("./models/reid_osnet_market.onnx")  # OSNet 0.947; falls back to reid.onnx / HSV if absent
 
     # --- Tracking ----------------------------------------------------------
     track_timeout_seconds: float = 5.0

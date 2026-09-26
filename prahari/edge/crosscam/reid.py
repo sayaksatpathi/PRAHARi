@@ -154,20 +154,36 @@ def similarity(a: np.ndarray | None, b: np.ndarray | None) -> float:
 
 
 def build_embedder(settings) -> "ReidEmbedder | None":
-    """Construct the embedder if its weights are present, else None.
+    """Construct the best available embedder, else None (HSV histogram cue).
 
-    Returning None is a normal outcome, not an error: it means the node runs the
-    histogram cue, which is tested and works.
+    Preference order: the configured model, then OSNet (Market-1501 Rank-1 0.947),
+    then the ResNet-18 model (0.705). OSNet is the production Re-ID when its weights
+    are present (export with scripts/export_reid_osnet.py). Returning None is a
+    normal outcome: the node then runs the tested histogram cue.
     """
-    path = Path(getattr(settings, "reid_model_path", "models/reid.onnx"))
-    if not path.exists():
-        log.info("cross-camera appearance: no re-ID model at %s - using the HSV "
-                 "histogram cue", path)
-        return None
-    try:
-        return ReidEmbedder(path, device=getattr(settings, "device", "auto"),
-                            cuda_dll_dir=getattr(settings, "cuda_dll_dir", None))
-    except Exception as exc:
-        log.warning("cross-camera appearance: re-ID model failed to load (%s); "
-                    "using the HSV histogram cue", exc)
-        return None
+    configured = Path(getattr(settings, "reid_model_path", "models/reid.onnx"))
+    candidates = [
+        configured,
+        Path("models/reid_osnet_market.onnx"),   # OSNet, SOTA (0.947)
+        Path("models/reid.onnx"),                 # ResNet-18 (0.705)
+    ]
+    seen = set()
+    for path in candidates:
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        if not path.exists():
+            continue
+        try:
+            emb = ReidEmbedder(path, device=getattr(settings, "device", "auto"),
+                               cuda_dll_dir=getattr(settings, "cuda_dll_dir", None))
+            if path != configured:
+                log.info("cross-camera appearance: using %s (configured %s absent)",
+                         path.name, configured.name)
+            return emb
+        except Exception as exc:                  # noqa: BLE001
+            log.warning("cross-camera appearance: %s failed to load (%s)", path.name, exc)
+    log.info("cross-camera appearance: no re-ID model present - using the HSV "
+             "histogram cue")
+    return None
