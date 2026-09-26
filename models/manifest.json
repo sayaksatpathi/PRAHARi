@@ -1,0 +1,21 @@
+{
+  "models": {
+    "face_yunet_2023mar.onnx": "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4",
+    "osnet_x1_0_market1501.pth": "fe2d63f9157c28a4a8d8ca29bec12d5b2988ac0346d712025789ea9174968e79",
+    "osnet_x1_0_market_real.pth": "2809d3227f7d078f6045f7feb874a34d0684f0e0057b264b99adccf7d4519154",
+    "reid.onnx": "15f797133b58314c8f4c366f297dc10977f19c8e62a53715e4ce45ebe278984c",
+    "reid_osnet.onnx": "9bac7d78084d1f52a14e21b73668bc5ee91fe1e6578e57d399483c513004de5b",
+    "reid_osnet_market.onnx": "451e0b09801759f9d441e9dce23de71b8e3962f88e9c760ef9a5b1926e2d29c7",
+    "reid_retrain.onnx": "867bca8387edf72bdc13ec0a9324e6b8512183df548e04dd089732aeef88ae54",
+    "sam2_decoder.onnx": "f5a4bd656c143899fb7f52d64ed81e6f6aeb37d477a0b6da50146ac7cf2187bf",
+    "sam2_encoder.onnx": "4cc015ee18520e93f8c7ddfeaca7436039daaaaf19721b4b96a8810a805e82f7",
+    "scrfd_500m.onnx": "72ce8732254ed6678d78e8a8c4b8bf2d4258128afe714edec877eaa90f7b7958",
+    "yolov8m_1280.onnx": "e57dff4c7bd455c71c1c31dcebcc68debe248d02340bdfb0afc3d7a3ba9c55e8",
+    "yolov8m_coco.onnx": "897cb73a5a32e89884fba40381b815ba5f773fa6b87aac4e0a63eebbab95456e",
+    "yolov8n_ft.onnx": "e361c680e370722051a11b4db3384b4fb96377d010f43a57bafd28c3b7e45754",
+    "yolov8s_mot.onnx": "521c5781e7033b050d2c44c9ff0b13def3521afbc0e0108a45ecc90ccc8fd3b2",
+    "yolox_s.onnx": "c5c2d13e59ae883e6af3b45daea64af4833a4951c92d116ec270d9ddbe998063",
+    "yolox_tiny.onnx": "427cc366d34e27ff7a03e2899b5e3671425c262ea2291f88bb942bc1cc70b0f7",
+    "yolox_tiny_dyn.onnx": "be7221c2d3369a7232f797c87d84ce975e899cc2eff43a72c0dcb28273702b73"
+  }
+}
