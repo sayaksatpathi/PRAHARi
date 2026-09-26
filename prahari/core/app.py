@@ -325,6 +325,63 @@ async def verify_ledger():
                     "countersigns chain heads so witnessed history cannot be rewritten"}
 
 
+class RewriteRequest(BaseModel):
+    node_id: str
+
+
+@app.post("/api/demo/rewrite", tags=["demo"])
+async def demo_rewrite(req: RewriteRequest):
+    """Simulate an attacker with core-DB access rewriting witnessed evidence.
+
+    Demonstrates the notary's value: it edits a *witnessed* event in the core's
+    own store and re-stamps that node's chain from there, so the edge-style walk
+    would still call the chain internally consistent — yet ``/api/ledger/verify``
+    now reports REWRITE DETECTED, because the re-stamped head no longer matches the
+    hash the core countersigned. Demo-mode only; refused otherwise.
+    """
+    from prahari.edge.evidence import compute_entry_hash
+
+    if not SETTINGS.demo_mode:
+        return JSONResponse(status_code=403,
+                            content={"error": "demo endpoints disabled"})
+
+    cp = state.db.latest_checkpoint(req.node_id)
+    if not cp:
+        return JSONResponse(status_code=409, content={
+            "error": "no countersigned checkpoint for this node yet — sync first"})
+
+    # Target the earliest witnessed event so the re-stamp cascades to the head.
+    events = sorted((e for e in state.db.list_events(limit=5000)
+                     if e.node_id == req.node_id and e.ledger_index),
+                    key=lambda e: e.ledger_index)
+    witnessed = [e for e in events if e.ledger_index <= cp["ledger_index"]]
+    if not witnessed:
+        return JSONResponse(status_code=409,
+                            content={"error": "no witnessed events to rewrite"})
+
+    victim = witnessed[len(witnessed) // 2]
+    victim_index = victim.ledger_index
+    original_score = victim.priority_score
+
+    # Edit the victim, then re-chain everything from it to the head so the naive
+    # walk stays consistent — exactly the sophisticated rewrite the notary defeats.
+    prev = events[victim_index - 2].entry_hash if victim_index >= 2 else ""
+    for ev in events:
+        if ev.ledger_index < victim_index:
+            continue
+        if ev.ledger_index == victim_index:
+            ev.priority_score = round(original_score * 0.1 + 0.001, 4)  # quiet downgrade
+        ev.prev_hash = prev
+        ev.entry_hash = compute_entry_hash(ev.ledger_index, prev, ev)
+        state.db.insert_event(ev)
+        prev = ev.entry_hash
+
+    log.warning("DEMO: rewrote witnessed event %s (index %d) for node %s",
+                victim.event_id, victim_index, req.node_id)
+    return {"rewritten_event": victim.event_id, "ledger_index": victim_index,
+            "note": "witnessed evidence altered; run ledger verify to detect it"}
+
+
 def main() -> None:
     import uvicorn
 

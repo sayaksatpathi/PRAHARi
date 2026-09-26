@@ -571,6 +571,28 @@ async def ledger_notary(principal: Principal = Depends(current_principal)):
                         if not node_result else "")}
 
 
+@app.post("/api/system/demo/ledger-rewrite", tags=["system"])
+async def demo_ledger_rewrite(principal: Principal = Depends(require("admin"))):
+    """Demo only: ask the core to simulate an attacker rewriting witnessed evidence.
+
+    So the Evidence Integrity view can show the notary catching a rewrite that the
+    edge chain alone would pass. Refused outside demo mode.
+    """
+    import httpx
+
+    if not runtime.settings.demo_mode:
+        raise HTTPException(status_code=403, detail="demo endpoints disabled")
+    core_url = runtime.settings.core_url.rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=4.0) as client:
+            resp = await client.post(f"{core_url}/api/demo/rewrite",
+                                     json={"node_id": runtime.settings.node_id})
+            return resp.json()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502,
+                            detail=f"core not reachable: {str(exc)[:120]}")
+
+
 @app.get("/api/system/audit", tags=["system"])
 async def audit_log(limit: int = 200, principal: Principal = Depends(require("admin"))):
     return {"entries": runtime.db.list_audit(limit)}

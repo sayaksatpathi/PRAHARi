@@ -761,7 +761,10 @@ const Views = (() => {
         <div class="panel" style="margin-bottom:12px">
           <div class="panel-head">
             <span class="panel-title">Core countersigning (notary)</span>
-            <button class="sm" id="notary-btn">Check</button>
+            <span class="row">
+              <button class="sm" id="notary-btn">Check</button>
+              <button class="sm danger" id="rewrite-btn" title="Demo: simulate an attacker rewriting witnessed evidence">Simulate rewrite (demo)</button>
+            </span>
           </div>
           <div class="panel-body" id="notary-result">
             <p class="small dim" style="margin:0">The core witnesses this node's chain
@@ -818,6 +821,31 @@ const Views = (() => {
             <div class="tiny faint" style="margin-top:8px">
               countersign log ${w.countersign_valid ? 'intact' : 'ALTERED'} ·
               witnessed history ${w.no_rewrite ? 'unchanged' : 'REWRITTEN'}
+            </div>`;
+        } catch (e) {
+          out.innerHTML = `<div class="notice bad">${esc(e.message)}</div>`;
+        }
+      });
+
+      document.getElementById('rewrite-btn').addEventListener('click', async () => {
+        const out = document.getElementById('notary-result');
+        out.innerHTML = '<p class="small dim">Simulating an attacker rewriting witnessed evidence…</p>';
+        try {
+          const r = await API.demoLedgerRewrite();
+          // Now re-check: the edge chain will still say intact, the notary won't.
+          const n = await API.verifyNotary();
+          const w = n.witnessed || {};
+          const detected = w && w.no_rewrite === false;
+          out.innerHTML = `
+            <div class="row">
+              <span class="badge ${detected ? 'b-bad' : 'b-neutral'} solid">${detected ? 'REWRITE DETECTED' : 'sync to core first'}</span>
+              <span class="small dim">${detected
+                ? `entry #${esc(String(r.ledger_index))} (${esc(r.rewritten_event)}) was altered — the notary caught it`
+                : esc(n.message || 'no countersigned checkpoint yet')}</span>
+            </div>
+            <div class="tiny faint" style="margin-top:8px">
+              edge chain would still walk as consistent — the core's countersigned
+              head no longer matches, which is the whole point.
             </div>`;
         } catch (e) {
           out.innerHTML = `<div class="notice bad">${esc(e.message)}</div>`;
