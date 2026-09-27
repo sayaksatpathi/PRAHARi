@@ -1319,7 +1319,10 @@ if WEB_DIR.exists():
 async def root():
     index = WEB_DIR / "index.html"
     if index.exists():
-        return FileResponse(index)
+        # Never let the browser serve a stale shell. index.html is tiny and
+        # references versioned JS/CSS, so revalidating it every load is what makes
+        # a UI update actually reach the operator without a manual hard refresh.
+        return FileResponse(index, headers={"Cache-Control": "no-cache"})
     return JSONResponse({
         "service": "Prahari Edge Node",
         "node": runtime.settings.node_id,
