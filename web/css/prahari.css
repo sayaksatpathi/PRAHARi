@@ -78,8 +78,8 @@ html, body {
 
 #app {
   display: grid;
-  grid-template-columns: 224px 1fr;
-  grid-template-rows: 54px 1fr;
+  grid-template-columns: 270px 1fr;
+  grid-template-rows: 78px 1fr;
   grid-template-areas: "brand topbar" "sidebar main";
   height: 100vh;
 }
@@ -122,14 +122,15 @@ html, body {
   clip-path: polygon(50% 6%, 92% 22%, 92% 60%, 50% 92%, 8% 60%, 8% 22%);
   opacity: .85;
 }
-/* Logo emblem (image). Round, tactical ring, sits on the dark header. */
+/* Full Prahari badge in the header — shown whole (uncropped) and large enough
+   to read the name, framed on a small white panel against the dark header. */
 .brand-logo {
-  width: 34px; height: 34px;
-  flex: none;
-  border-radius: 50%;
-  object-fit: cover;
-  background: #0a121c;
-  box-shadow: 0 0 0 1px #ffffff1f, 0 0 0 2px #2c3d52, 0 4px 12px -4px #000;
+  height: 62px; width: 62px; flex: none;
+  object-fit: contain;
+  background: #ffffff;
+  border-radius: 9px;
+  padding: 3px;
+  box-shadow: 0 0 0 1px #ffffff22, 0 6px 14px -6px #000;
 }
 .login-card .brand-logo { width: 40px; height: 40px; }
 
@@ -556,11 +557,17 @@ tr:hover td { background: var(--bg-raised); }
 }
 .login-logo {
   display: flex; justify-content: center;
-  padding: 24px 20px 4px;
+  padding: 22px 20px 6px;
 }
+/* Complete Prahari badge — shown whole (never cropped), framed on a clean panel
+   so the white-background artwork reads well on the dark login card. */
 .login-logo img {
-  width: 220px; max-width: 74%; height: auto; display: block;
-  filter: drop-shadow(0 8px 18px rgba(0,0,0,.55));
+  width: 250px; max-width: 82%; height: auto; display: block;
+  object-fit: contain;
+  background: #ffffff;
+  border-radius: 14px;
+  padding: 10px;
+  box-shadow: 0 10px 26px -8px rgba(0,0,0,.6), 0 0 0 1px #ffffff22;
 }
 
 #toast {
