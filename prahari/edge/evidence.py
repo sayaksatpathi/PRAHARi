@@ -36,6 +36,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import shutil
 import threading
 from collections import deque
 from datetime import datetime, timezone
@@ -234,8 +235,33 @@ class EvidenceStore:
                     month_dir.rmdir()
             if not any(year_dir.iterdir()):
                 year_dir.rmdir()
-                
+
         return deleted
+
+    def enforce_cap(self, max_events: int) -> int:
+        """Bound the store by count: keep only the most recent max_events packages.
+
+        A long run (or a busy sector) writes evidence far faster than the daily
+        time-based prune reclaims it, so the disk fills and the whole node crawls.
+        This caps the store on the *file* side only — the event rows and their
+        SHA-256 hashes stay in the database, so the record and the hash chain are
+        untouched; only the frames/clips of the oldest packages are dropped, the
+        same degrade-not-delete rule evict_clip follows for a single event.
+        """
+        if max_events <= 0 or not self.root.exists():
+            return 0
+        dirs = [d for d in self.root.rglob("EVT-*") if d.is_dir()]
+        if len(dirs) <= max_events:
+            return 0
+        dirs.sort(key=lambda d: d.stat().st_mtime, reverse=True)
+        removed = 0
+        for d in dirs[max_events:]:
+            try:
+                shutil.rmtree(d, ignore_errors=True)
+                removed += 1
+            except OSError:
+                pass
+        return removed
 
     def write_clip(self, camera_id: str, event_id: str, when: datetime,
                    frames: list[tuple[float, bytes]], fps: float) -> tuple[Path | None, str, float, int]:

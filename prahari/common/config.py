@@ -101,6 +101,11 @@ class Settings(BaseSettings):
     event_clip_before_seconds: float = 3.0
     event_clip_after_seconds: float = 7.0
     evidence_retention_days: int = 30
+    # Hard cap on evidence packages kept on disk. The daily time-based prune above
+    # never fires within a single long demo/session, so this count-based cap keeps
+    # the store bounded and the node fast regardless of uptime. Only files are
+    # dropped for the oldest packages; event rows and their hashes are retained.
+    evidence_max_events: int = 3000
 
     # --- Store-and-forward -------------------------------------------------
     core_url: str = "http://127.0.0.1:9000"

@@ -324,6 +324,18 @@ class NodeRuntime:
                     last_decay_time = now_dt
                     self.db.set_node_state("last_decay", {"time": now_dt.isoformat()})
 
+                # Count-based evidence cap, every ~2 min. The daily prune never
+                # fires inside one session, so without this a long run fills the
+                # disk with evidence and the node slows to a crawl. Runs in a
+                # thread so a large sweep never blocks the event loop.
+                if tick_count % 24 == 0:
+                    removed = await asyncio.get_running_loop().run_in_executor(
+                        None, self.evidence.enforce_cap,
+                        self.settings.evidence_max_events)
+                    if removed:
+                        log.info("evidence cap: evicted %d oldest package(s) "
+                                 "(hashes retained)", removed)
+
                 findings = self.coordinator.tick(now_dt)
                 for f in findings:
                     if f.get("kind") == "corridor_dropout":
