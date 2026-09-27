@@ -122,6 +122,17 @@ html, body {
   clip-path: polygon(50% 6%, 92% 22%, 92% 60%, 50% 92%, 8% 60%, 8% 22%);
   opacity: .85;
 }
+/* Logo emblem (image). Round, tactical ring, sits on the dark header. */
+.brand-logo {
+  width: 34px; height: 34px;
+  flex: none;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #0a121c;
+  box-shadow: 0 0 0 1px #ffffff1f, 0 0 0 2px #2c3d52, 0 4px 12px -4px #000;
+}
+.login-card .brand-logo { width: 40px; height: 40px; }
+
 .brand-text { display: flex; flex-direction: column; line-height: 1.05; }
 .brand-name {
   font-weight: 700;
