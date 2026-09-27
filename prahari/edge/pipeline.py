@@ -881,10 +881,35 @@ class CameraPipeline:
                     **({"refinement": refine_detail} if refine_detail else {})},
         )
 
-        # Trigger frame now; the clip completes a few seconds later.
+        # Recording and alerting are separate decisions. Decide alerting first,
+        # so heavy evidence can be captured only for events an operator would
+        # actually review.
+        #
+        # A suppressed patrol never reaches the governor at all. That ordering
+        # is deliberate: the governor rations *candidate* alerts against an
+        # operator's attention budget, and movement a declared patrol accounts
+        # for was never a candidate. Routing it through the governor would let
+        # a routine patrol consume budget that a real alert then could not get.
+        if patrol is not None and patrol.decision is PatrolDecision.SUPPRESSED:
+            event.alerted = False
+            event.alert_decision = patrol.reason
+            if self.patrol_matcher is not None:
+                self.patrol_matcher.spend_budget(patrol, self._patrol_obs)
+        elif self.governor is not None:
+            decision = self.governor.decide(event)
+            event.alerted = decision.alerted
+            event.alert_decision = decision.reason
+
+        # Heavy evidence (trigger frame, mask, post-roll video clip) is captured
+        # only for events worth reviewing: anything that alerted, or that scored
+        # HIGH or above. A busy border generates hundreds of routine
+        # recorded-not-alerted events a minute; writing a frame and a clip for
+        # every one buries the disk and starves the pipeline. Those still get
+        # their tamper-evident ledger record — just not a video package.
         clip_queued = False
+        capture = event.alerted or priority.rank >= _Priority.HIGH.rank
         latest = self.buffer.latest()
-        if latest:
+        if latest and capture:
             frame_path, thumb_path, digest = self.evidence_store.write_frame(
                 self.camera.camera_id, event.event_id, now, latest[1])
             event.evidence = EvidenceRef(
@@ -920,24 +945,8 @@ class CameraPipeline:
                 )
                 log.warning("clip backlog full on %s; skipping clip for %s",
                             self.camera.camera_id, event.event_id)
-
-        # Recording and alerting are separate decisions. Everything below is
-        # recorded; the governor decides only whether it interrupts anybody.
-        #
-        # A suppressed patrol never reaches the governor at all. That ordering
-        # is deliberate: the governor rations *candidate* alerts against an
-        # operator's attention budget, and movement a declared patrol accounts
-        # for was never a candidate. Routing it through the governor would let
-        # a routine patrol consume budget that a real alert then could not get.
-        if patrol is not None and patrol.decision is PatrolDecision.SUPPRESSED:
-            event.alerted = False
-            event.alert_decision = patrol.reason
-            if self.patrol_matcher is not None:
-                self.patrol_matcher.spend_budget(patrol, self._patrol_obs)
-        elif self.governor is not None:
-            decision = self.governor.decide(event)
-            event.alerted = decision.alerted
-            event.alert_decision = decision.reason
+        elif not capture:
+            event.detail["evidence_state"] = "ledger record only (routine event)"
 
         # An event is sealed into the hash chain once its evidence package is
         # complete, because the chain commits to the clip hash and the clip does

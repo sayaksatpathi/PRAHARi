@@ -226,6 +226,7 @@ const Views = (() => {
 
     const evd = ev.evidence || {};
     const hasClip = !!evd.clip_path;
+    const hasFrame = !!evd.frame_sha256;
 
     const body = `
       <div class="grid g2">
@@ -233,14 +234,21 @@ const Views = (() => {
           <div class="panel" style="margin-bottom:12px">
             <div class="panel-head"><span class="panel-title">Evidence</span>
               ${hasClip ? '<span class="badge b-ok tiny">CLIP + PRE-ROLL</span>'
-                        : '<span class="badge b-warn tiny">FRAME ONLY</span>'}
+                : hasFrame ? '<span class="badge b-warn tiny">FRAME ONLY</span>'
+                           : '<span class="badge b-neutral tiny">LEDGER RECORD</span>'}
             </div>
             <div class="panel-body flush">
               ${hasClip
                 ? `<video data-evkind="clip" controls
                           style="width:100%;display:block;background:#05080c"></video>`
-                : `<img data-evkind="frame" alt="Trigger frame"
-                        style="width:100%;display:block;background:#05080c;min-height:120px">`}
+                : hasFrame
+                ? `<img data-evkind="frame" alt="Trigger frame"
+                        style="width:100%;display:block;background:#05080c;min-height:120px">`
+                : `<div class="empty" style="padding:22px 14px;text-align:center">
+                     Routine event — recorded and sealed in the hash chain, but no
+                     video package was captured. Full clips are kept for alerts and
+                     high-priority events.
+                   </div>`}
             </div>
           </div>
 
