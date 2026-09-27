@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Prahari — Border Video Intelligence</title>
-<link rel="stylesheet" href="/ui/css/prahari.css?v=20260927">
+<link rel="stylesheet" href="/ui/css/prahari.css?v=20260928">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='4' y='4' width='24' height='24' rx='4' fill='none' stroke='%233b9eff' stroke-width='3'/><rect x='11' y='11' width='10' height='10' rx='2' fill='%233b9eff'/></svg>">
 </head>
 <body>
@@ -29,7 +29,22 @@
         </div>
         <div class="field">
           <label for="lg-pass" data-i18n="login.password">Password</label>
-          <input id="lg-pass" type="password" autocomplete="current-password" required>
+          <div style="position:relative">
+            <input id="lg-pass" type="password" autocomplete="current-password"
+                   required style="padding-right:40px">
+            <button type="button" id="lg-pass-toggle" aria-label="Show password"
+                    title="Show password"
+                    style="position:absolute;right:6px;top:50%;transform:translateY(-50%);
+                           background:none;border:none;cursor:pointer;padding:4px;
+                           color:var(--dim);display:flex;align-items:center">
+              <svg id="lg-eye" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                   stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                   stroke-linejoin="round">
+                <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+            </button>
+          </div>
         </div>
         <div id="login-error" class="notice bad" style="display:none;margin-bottom:11px"></div>
         <button class="primary" style="width:100%" type="submit" data-i18n="login.signin">Sign in</button>
@@ -90,10 +105,10 @@
 <div id="toast" role="status" aria-live="polite" aria-atomic="false"></div>
 <div id="modal-root" role="dialog" aria-modal="true"></div>
 
-<script src="/ui/js/i18n.js?v=20260927"></script>
-<script src="/ui/js/api.js?v=20260927"></script>
-<script src="/ui/js/ui.js?v=20260927"></script>
-<script src="/ui/js/views.js?v=20260927"></script>
-<script src="/ui/js/app.js?v=20260927"></script>
+<script src="/ui/js/i18n.js?v=20260928"></script>
+<script src="/ui/js/api.js?v=20260928"></script>
+<script src="/ui/js/ui.js?v=20260928"></script>
+<script src="/ui/js/views.js?v=20260928"></script>
+<script src="/ui/js/app.js?v=20260928"></script>
 </body>
 </html>
