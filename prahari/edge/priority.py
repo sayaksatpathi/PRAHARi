@@ -105,6 +105,7 @@ class ScoringContext:
     speed_mps: float | None = None
     group_size: int = 1
     near_boundary: bool = False
+    low_profile: bool = False           # person in a prone/crawling posture (wide-flat box)
     extra: dict[str, float] = field(default_factory=dict)
 
 
@@ -232,6 +233,18 @@ def score_event(
         factors.append(PriorityFactor(
             name="proximity to boundary", weight=0.07,
             detail="close to the configured border line",
+        ))
+
+    # A person moving in a prone / crawling posture is the classic low-observable
+    # border approach, and a detector that only trusts upright figures misses it.
+    # A wide-flat person box (nearly as wide as tall, or wider) is the signature.
+    # It raises concern rather than lowering it: people do not crawl by accident
+    # at a fence line.
+    if ctx.low_profile:
+        factors.append(PriorityFactor(
+            name="low-profile posture", weight=0.14,
+            detail="person in a prone/crawling posture (wide-flat silhouette) - "
+                   "a low-observable approach, not an upright walk",
         ))
 
     for name, weight in ctx.extra.items():

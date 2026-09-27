@@ -45,9 +45,17 @@ COCO_TO_CLASS: dict[int, ObjectClass] = {
     5: ObjectClass.BUS,
     7: ObjectClass.TRUCK,
     8: ObjectClass.BOAT,
-    19: ObjectClass.CATTLE,
-    20: ObjectClass.CATTLE,   # sheep -> livestock
-    17: ObjectClass.CATTLE,   # horse -> livestock
+    # ObjectClass.CATTLE is the "benign animal" class. Livestock is the dominant
+    # false-alarm source at a border, and strays/wildlife are the rest, so every
+    # COCO animal maps here and is down-weighted rather than mistaken for a person
+    # or silently dropped. Correct COCO indices:
+    15: ObjectClass.CATTLE,   # cat
+    16: ObjectClass.CATTLE,   # dog / stray - a major border false-alarm source
+    17: ObjectClass.CATTLE,   # horse
+    18: ObjectClass.CATTLE,   # sheep
+    19: ObjectClass.CATTLE,   # cow
+    20: ObjectClass.CATTLE,   # elephant - border wildlife
+    21: ObjectClass.CATTLE,   # bear - border wildlife
 }
 
 

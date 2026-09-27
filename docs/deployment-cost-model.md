@@ -61,6 +61,32 @@ licensing item to resolve is any research-only model weight (tracked in
 [model-provenance.md](model-provenance.md)); the deployable path uses
 permissively-licensed models only.
 
+## 2b. Power & connectivity envelope — one remote BOP
+
+Concrete numbers for a single off-grid Border Out Post running the edge node on
+4–6 existing cameras. These size the solar/UPS line above and answer "what does it
+actually draw and send?".
+
+| Quantity | Figure | Basis |
+|---|---|---|
+| Edge compute (idle→load) | **10–25 W** (Jetson Orin NX/Nano class) | edge-AI SoC, GPU inference at ≤25 W; a mini-PC+GPU is 45–90 W if a discrete GPU is used |
+| Existing cameras | **~5–12 W each** (PoE), reused | already installed and powered — not new draw |
+| Edge node energy/day | **≈ 0.25–0.6 kWh/day** | 10–25 W × 24 h |
+| Battery for 48 h autonomy | **~1.2–2.4 kWh** (e.g. 100–200 Ah @ 12 V) | 2× daily energy, for two overcast days |
+| Solar to recharge | **~200–400 W panel** | recharges the day's draw plus buffer in ~4–5 peak-sun hours |
+| **Uplink bandwidth needed** | **≈ 30–60 kbit/s average** | **measured on the running node: ~33 kbit/s, 99.79 % less than continuous streaming**; ~1 MB per sync batch |
+| Fits which links | **VSAT, 4G/LTE, even a data radio** | events + hashed evidence go up metered; full video stays local |
+
+**Why the uplink is tiny.** Prahari never streams video to the core. It processes
+on the edge and ships only **events + SHA-256-hashed evidence**, queued through an
+outage and synced on reconnect. The dashboard's own "Uplink economics" panel shows
+the live figure — **~33 kbit/s and a 99.79 % reduction against continuous
+streaming** — which is what makes a solar-powered VSAT BOP viable at all.
+
+**Honest scope:** these are engineering estimates from the measured bandwidth and
+standard edge-AI/solar sizing, not a site survey. Real mounting, grid quality and
+link availability at a specific BOP still need a survey (see §7).
+
 ## 3. Sector core (aggregation)
 
 | Item | Spec | Est. ₹ |

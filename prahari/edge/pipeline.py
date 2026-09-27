@@ -94,6 +94,26 @@ MAX_PENDING_CLIPS = 12
 # change between frames, and this is the most expensive model on the node.
 ANPR_ATTEMPT_INTERVAL = 6
 
+# A person's bounding box taller than this ratio (height/width) is an upright
+# walk; below it the silhouette is wide and flat — prone or crawling, the classic
+# low-observable border approach a purely upright detector would miss.
+LOW_PROFILE_ASPECT = 0.9
+
+
+def _is_low_profile(track) -> bool:
+    """True when a person track's box is wide-and-flat (prone/crawling), not upright.
+
+    Guarded by a minimum box size so tracking jitter on a distant speck is not
+    read as a crawl. Deliberately posture-from-geometry, not a pose model — it
+    stays inside the CCTV-video scope and costs nothing per frame.
+    """
+    if track is None or track.object_class is not ObjectClass.PERSON:
+        return False
+    b = track.bbox
+    if b.width < 24 or b.height < 12:
+        return False
+    return (b.height / max(1.0, b.width)) < LOW_PROFILE_ASPECT
+
 # How long to wait before re-attempting calibration on a camera that was
 # certified without a ground plane. Traffic is not uniform: a camera that saw
 # nobody during a quiet night may see plenty at first light, and a camera that
@@ -809,6 +829,7 @@ class CameraPipeline:
             speed_mps=track.speed_mps if track else None,
             group_size=cand.group_size,
             near_boundary=cand.near_boundary,
+            low_profile=_is_low_profile(track),
             extra=cand.extra_factors,
         )
         score, factors, priority = score_event(cand.event_type, track, sctx)
