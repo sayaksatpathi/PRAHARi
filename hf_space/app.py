@@ -99,22 +99,22 @@ with tabs[2]:
         st.session_state.rewritten = False
 
     a, b, c, d = st.columns(4)
-    if a.button("① Seal events", use_container_width=True):
+    if a.button("① Seal events", width="stretch"):
         st.session_state.chain = core.build_chain(st.session_state.events)
         st.session_state.witnessed = None
         st.session_state.rewritten = False
-    if b.button("② Core countersign", use_container_width=True):
+    if b.button("② Core countersign", width="stretch"):
         head = st.session_state.chain[-1]
         st.session_state.witnessed = {
             "index": head["index"], "hash": head["hash"],
             "sig": core.core_countersign(head["index"], head["hash"], ""),
         }
-    if c.button("③ Simulate rewrite", use_container_width=True):
+    if c.button("③ Simulate rewrite", width="stretch"):
         st.session_state.chain = core.restamp_rewrite(
             st.session_state.chain, 2,
             {"cam": "CAM-011", "type": "line_crossing", "score": 0.05})  # quiet downgrade
         st.session_state.rewritten = True
-    if d.button("↺ Reset", use_container_width=True):
+    if d.button("↺ Reset", width="stretch"):
         for k in ("events", "chain", "witnessed", "rewritten"):
             st.session_state.pop(k, None)
         st.rerun()
@@ -123,7 +123,7 @@ with tabs[2]:
     df = pd.DataFrame([{"#": c["index"], "event": f"{c['event']['cam']} · {c['event']['type']}",
                         "score": c["event"]["score"], "entry_hash": c["hash"][:18] + "…"}
                        for c in chain])
-    st.dataframe(df, hide_index=True, use_container_width=True)
+    st.dataframe(df, hide_index=True, width="stretch")
 
     valid, broken = core.edge_verify(chain)
     e1, e2 = st.columns(2)
@@ -185,7 +185,7 @@ with tabs[4]:
     st.dataframe(pd.DataFrame(
         [{"Capability": a, "Result": b, "Kind": c, "Note": d}
          for a, b, c, d in core.BENCHMARKS],
-    ), hide_index=True, use_container_width=True)
+    ), hide_index=True, width="stretch")
     st.caption("Honesty stance: negative results are kept visible. The Event Priority "
                "Score is a ranking aid, not a calibrated probability, and has not been "
                "validated against border ground truth.")
