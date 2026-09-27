@@ -32,6 +32,7 @@ from prahari.common.db import Database
 from prahari.common.models import (
     Camera,
     Capability,
+    Event,
     EventType,
     LinkMode,
     PatrolProfile,
