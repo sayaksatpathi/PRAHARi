@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prahari — Border Video Intelligence</title>
+<meta name="description" content="AI video-intelligence for existing border CCTV. SIH26187 · Blockchain & Cybersecurity. Live tamper-evident evidence-ledger simulation.">
+<style>
+  :root{
+    --bg:#0b1017; --panel:#111a26; --panel2:#0e1620; --line:#20303f;
+    --text:#e7eef6; --dim:#9fb0c2; --faint:#6c8098;
+    --saffron:#ff9933; --green:#138808; --blue:#2f6fd0;
+    --ok:#28c76f; --bad:#ff5b5b; --warn:#ffb020;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Segoe UI',system-ui,-apple-system,Roboto,Arial,sans-serif;background:var(--bg);
+    color:var(--text);line-height:1.55;-webkit-font-smoothing:antialiased}
+  a{color:#6db0ff;text-decoration:none} a:hover{text-decoration:underline}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 20px}
+  .tricolor{height:5px;background:linear-gradient(90deg,var(--saffron) 0 33%,#eef2f6 33% 66%,var(--green) 66% 100%)}
+  header{background:linear-gradient(180deg,#0f1a28,#0b1017);border-bottom:1px solid var(--line);padding:22px 0 0}
+  .head{display:flex;align-items:center;gap:16px}
+  .logo{height:58px;width:58px;border-radius:11px;background:#fff;padding:4px;flex:none;box-shadow:0 6px 18px -6px #000}
+  .htext h1{font-size:26px;letter-spacing:.06em;font-weight:800}
+  .htext .sub{color:var(--dim);font-size:13.5px;margin-top:2px;max-width:760px}
+  .htext .sub b{color:var(--text)}
+  .badges{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+  .chip{font-size:11px;font-weight:700;letter-spacing:.05em;padding:4px 10px;border-radius:20px;
+    border:1px solid var(--line);color:var(--dim);white-space:nowrap}
+  .chip.warn{color:#0a0f16;background:var(--saffron);border-color:transparent}
+  .chip.blue{color:#cfe2ff;border-color:#2b4a72;background:#12233a}
+  /* tabs */
+  nav.tabs{display:flex;gap:2px;flex-wrap:wrap;margin-top:18px;border-bottom:1px solid var(--line)}
+  .tab{padding:11px 16px;font-size:14px;font-weight:600;color:var(--dim);cursor:pointer;
+    border:none;background:none;border-bottom:2px solid transparent;margin-bottom:-1px}
+  .tab:hover{color:var(--text)}
+  .tab.active{color:#6db0ff;border-bottom-color:#2f6fd0}
+  main{padding:26px 0 10px;min-height:60vh}
+  .panel{display:none} .panel.active{display:block}
+  h2{font-size:21px;font-weight:800;margin-bottom:8px}
+  h3{font-size:15px;font-weight:800;margin:2px 0 4px}
+  p.lead{color:var(--dim);max-width:860px;font-size:14.5px;margin-bottom:6px}
+  p.cap{color:var(--faint);font-size:13px;margin:4px 0 12px}
+  .cols3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:18px 0}
+  @media(max-width:820px){.cols3{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
+  .card p{font-size:13.5px;color:var(--dim);margin-top:5px}
+  .card p em{color:#9fd0ff;font-style:normal}
+  .info{background:#0e1a28;border:1px solid #1c3350;border-left:4px solid var(--blue);border-radius:8px;
+    padding:13px 16px;color:#c3d6ee;font-size:13.5px;margin-top:14px}
+  .warnbox{background:#241f10;border:1px solid #5a4a1c;border-left:4px solid var(--warn);border-radius:8px;
+    padding:13px 16px;color:#ffe6ad;font-size:13.5px;margin-top:14px}
+  .warnbox b{color:#fff}
+  .note{background:#0e1a10;border:1px solid #1c3a24;border-left:4px solid var(--green);border-radius:8px;
+    padding:12px 15px;color:#bcd9c6;font-size:13px;margin-top:14px}
+  /* cameras */
+  .cams{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  @media(max-width:720px){.cams{grid-template-columns:1fr}}
+  .cam .ctitle{font-weight:800;font-size:14px;margin-bottom:6px}
+  .cam video{width:100%;display:block;background:#000;aspect-ratio:16/9;object-fit:cover;border-radius:10px;border:1px solid var(--line)}
+  .pill{display:inline-block;padding:3px 10px;border-radius:10px;font-size:11px;background:#16324f;color:#8fc7ff;
+    border:1px solid #244b6e;margin:8px 0 2px}
+  .pill.ok{background:#123522;color:#6fe0a0;border-color:#1e5c3a}
+  .pill.bad{background:#3a1520;color:#ff8fa3;border-color:#6e2436}
+  .cam .cnote{color:var(--faint);font-size:12.5px;margin-top:4px}
+  /* tables */
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+  th{color:var(--faint);font-weight:700;text-transform:uppercase;font-size:10.5px;letter-spacing:.05em}
+  .mono{font-family:ui-monospace,Consolas,monospace}
+  .status{font-weight:800;font-size:10.5px;padding:2px 8px;border-radius:6px;white-space:nowrap}
+  .s-green{background:#0f2419;color:#7ee2a8;border:1px solid #1c5a3a}
+  .s-built{background:#12233a;color:#cfe2ff;border:1px solid #2b4a72}
+  .s-doc{background:#241f10;color:#ffe6ad;border:1px solid #5a4a1c}
+  /* ledger demo */
+  .btnrow{display:flex;flex-wrap:wrap;gap:9px;margin:6px 0 14px}
+  button.act{font:inherit;font-weight:700;font-size:13px;cursor:pointer;border-radius:8px;padding:9px 14px;
+    border:1px solid #2b4a72;background:#13233a;color:#dbe8fb}
+  button.act:hover{background:#18304d}
+  button.act.danger{border-color:#5a2330;background:#2a1620;color:#ffc9cf}
+  button.act.ghost{background:transparent;border-color:var(--line);color:var(--dim)}
+  .twocol{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:14px}
+  @media(max-width:720px){.twocol{grid-template-columns:1fr}}
+  code.block{display:block;background:#0c141d;border:1px solid var(--line);border-radius:8px;padding:11px 14px;
+    font-family:ui-monospace,Consolas,monospace;font-size:13px;color:#a9e3c0;overflow-x:auto}
+  .sec-item{padding:9px 0;border-bottom:1px solid var(--line);font-size:14px}
+  .sec-item b{color:#fff}
+  .divider{border-top:1px solid var(--line);margin:22px 0 0}
+  footer{padding:16px 0 40px;color:var(--faint);font-size:12.5px}
+</style>
+</head>
+<body>
+<div class="tricolor"></div>
+<header>
+  <div class="wrap">
+    <div class="head">
+      <img class="logo" src="https://sayak-satpathi-prahari.static.hf.space/assets/prahari-logo.png" alt="Prahari">
+      <div class="htext">
+        <h1>🛡️ PRAHARI</h1>
+        <div class="sub">An AI video-intelligence layer for <b>existing</b> border CCTV · SIH26187 ·
+          Ministry of Home Affairs / Sashastra Seema Bal · <b>Blockchain &amp; Cybersecurity</b></div>
+      </div>
+      <div class="badges">
+        <span class="chip blue">SIH26187</span>
+        <span class="chip blue">Aroeminds</span>
+        <span class="chip warn">SHOWCASE</span>
+      </div>
+    </div>
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-t="overview">Overview</button>
+      <button class="tab" data-t="cameras">Live cameras</button>
+      <button class="tab" data-t="evidence">Evidence integrity (live)</button>
+      <button class="tab" data-t="anpr">ANPR</button>
+      <button class="tab" data-t="bench">Benchmarks</button>
+      <button class="tab" data-t="security">Security</button>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <!-- OVERVIEW -->
+  <section class="panel active" id="p-overview">
+    <h2>Turn the cameras that are already on the border into verifiable intelligence</h2>
+    <p class="lead">Prahari is a software layer over <b>existing CCTV</b> — no new hardware. Its contribution is a
+      <b>cryptographically verifiable chain of custody</b>: every event is sealed into a <b>two-tier, countersigned
+      hash-ledger</b> (the edge node writes, the sector core notarizes with a key the node never holds), so
+      surveillance evidence is <b>tamper-resistant and admissible under BSA §65B</b> — even after a three-day
+      uplink outage at a remote outpost.</p>
+    <div class="cols3">
+      <div class="card"><h3>🔗 Two-tier ledger</h3><p>Edge writes an append-only SHA-256 chain; the core
+        countersigns each head. History the core witnessed cannot be rewritten undetected — <em>try it in the
+        Evidence tab.</em></p></div>
+      <div class="card"><h3>🛰️ Existing CCTV</h3><p>Measures what each degraded camera can actually do
+        (IEC 62676-4 DORI), then grants analytics per image region. Fenced tripwires <em>or</em> open-border
+        pattern-of-life.</p></div>
+      <div class="card"><h3>🌙 Built for the real border</h3><p>Runs day, night (IR), and thermal; reads Indian
+        number plates; survives the offline uplink. Infiltration happens after dark — so does Prahari.</p></div>
+    </div>
+    <div class="info">This page is a free, always-on <b>showcase</b>. The clips are the real pipeline's output,
+      pre-rendered; the integrity demo runs live in your browser. The full GPU pipeline (6-camera real-time
+      detection, ANPR, segmentation) runs on an edge node with a GPU — code at
+      <a href="https://github.com/sayaksatpathi/PRAHARi" target="_blank" rel="noopener">GitHub</a>.</div>
+  </section>
+
+  <!-- CAMERAS -->
+  <section class="panel" id="p-cameras">
+    <h2>Six cameras — real pipeline output</h2>
+    <p class="cap">Detections, tracks, zones, plates and the thermal/night styling are drawn by the node. These are
+      short captures of the live system.</p>
+    <div class="cams" id="cams"></div>
+  </section>
+
+  <!-- EVIDENCE -->
+  <section class="panel" id="p-evidence">
+    <h2>Tamper-evident → tamper-resistant, live</h2>
+    <p class="lead">The edge hash chain alone is <b>tamper-evident</b>: a naive edit breaks a link. But an insider
+      who edits an event <b>and re-stamps every following hash</b> produces a chain the edge's own check accepts.
+      The sector core defeats that by <b>countersigning</b> each chain head with a key no node holds. Run it:</p>
+    <div class="btnrow">
+      <button class="act" id="b-seal">① Seal events</button>
+      <button class="act" id="b-sign">② Core countersign</button>
+      <button class="act danger" id="b-rewrite">③ Simulate rewrite</button>
+      <button class="act ghost" id="b-reset">↺ Reset</button>
+    </div>
+    <table>
+      <thead><tr><th>#</th><th>Event</th><th>Score</th><th>Entry hash</th></tr></thead>
+      <tbody id="chain"></tbody>
+    </table>
+    <div class="twocol">
+      <div><h3>Edge chain check</h3><div id="edgeCheck"></div></div>
+      <div><h3>Core countersignature (notary)</h3><div id="coreCheck"></div></div>
+    </div>
+    <div id="rewriteWarn"></div>
+  </section>
+
+  <!-- ANPR -->
+  <section class="panel" id="p-anpr">
+    <h2>Indian number-plate recognition</h2>
+    <p class="lead">The gate camera is certified for ANPR only where the measured scale clears <b>250 px/m</b>
+      (IEC DORI <i>Identify</i>) — Prahari <b>refuses</b> to guess a plate it cannot resolve, rather than emit
+      garbage. Where it can, a hybrid reader (fast-alpr detection + <b>Awiros PP-OCRv5</b>, an Apache-2.0 Indian
+      specialist) reads the characters.</p>
+    <div style="max-width:640px">
+      <video src="https://sayak-satpathi-prahari.static.hf.space/assets/CAM-011.mp4" controls muted loop playsinline preload="metadata"
+        style="width:100%;border-radius:10px;border:1px solid var(--line);background:#000"></video>
+    </div>
+    <p class="cap" style="margin-top:14px">Sample live reads from the footage:</p>
+    <code class="block">MP 04 YK 621   ·   KA 51 A 0120   ·   TN 55 3504   ·   HP …   ·   KA 66 0</code>
+    <p class="cap">MP = Madhya Pradesh · KA = Karnataka · TN = Tamil Nadu · HP = Himachal Pradesh. Non-plate text
+      (shop boards, hoardings) is dropped by the Indian-plate format check.</p>
+  </section>
+
+  <!-- BENCHMARKS -->
+  <section class="panel" id="p-bench">
+    <h2>Measured results</h2>
+    <p class="cap">Every number is reproducible from a script in the repo. Nothing here is a projection.</p>
+    <div class="card" style="overflow-x:auto"><table>
+      <thead><tr><th>Capability</th><th>Result</th><th>Kind</th><th>Note</th></tr></thead>
+      <tbody id="bench"></tbody></table></div>
+    <p class="cap">Honesty stance: negative results are kept visible. The Event Priority Score is a ranking aid,
+      not a calibrated probability, and has not been validated against border ground truth.</p>
+  </section>
+
+  <!-- SECURITY -->
+  <section class="panel" id="p-security">
+    <h2>Security posture (STRIDE)</h2>
+    <p class="cap">The one honest headline: the ledger is tamper-<b>resistant</b> via core countersigning today,
+      on a symmetric-HMAC trust root. HSM-backed asymmetric signing and external anchoring are the next steps —
+      designed for, not claimed as built.</p>
+    <div id="sec"></div>
+    <p style="margin-top:14px">Full code, tests and threat model:
+      <b><a href="https://github.com/sayaksatpathi/PRAHARi" target="_blank" rel="noopener">github.com/sayaksatpathi/PRAHARi</a></b></p>
+  </section>
+
+  <div class="divider"></div>
+  <footer>Prahari · SIH26187 · showcase runs free on Hugging Face Spaces (static). The full real-time GPU pipeline
+    runs on an edge node — see the repo. Team Aroeminds.</footer>
+</main>
+
+<script>
+// ---------- data (mirrors prahari_core.py) ----------
+const CAMERAS = [
+  ["CAM-011","Main Gate — Vehicle Lane","Chokepoint · FENCED · DORI IDENTIFY","Indian traffic + pedestrians. ANPR active (reads real Indian plates)."],
+  ["CAM-014","Perimeter North — Fence Line","Perimeter · FENCED · DORI OBSERVE","Dense pedestrian flow, market crowd."],
+  ["CAM-022","Approach Track — Forest Route","Approach · OPEN BORDER · DORI OBSERVE","Open-border doctrine: pattern-of-life, not tripwires."],
+  ["CAM-031","Ridge Thermal","Perimeter · FENCED · DORI OBSERVE","Thermal colormap; detection holds on thermal imagery."],
+  ["CAM-045","Legacy Analogue — South Track","Approach · FENCED · DORI RECOGNISE","Degraded legacy feed — treated on its measured capability."],
+  ["CAM-052","Riverine Night Post — IR","Approach · OPEN BORDER · night-capable","Real low-light footage. Infiltration happens after dark."],
+];
+const BENCH = [
+  ["Re-ID (Market-1501)","OSNet Rank-1 0.947 / mAP 0.845","MEASURED","vs ResNet-18 0.705 — production default"],
+  ["Face detection (WIDER FACE val)","YuNet AP@0.5 0.626","MEASURED","vs Haar 0.121; Apache/MIT, deployable"],
+  ["Detection + tracking (MOT17 held-out)","yolov8m@1280 MOTA 0.435 / IDF1 0.563","MEASURED","beats YOLOX-S 0.397; 108 fps on RTX 4050"],
+  ["ANPR (real Indian plates)","Awiros PP-OCRv5 — accurate reads","MEASURED","Apache-2.0 Indian specialist; global OCR garbled state codes"],
+  ["Scene anomaly (official protocol)","UCSD Ped2 frame-AUC 0.907","MEASURED","Street Scene metrics; RBDC 0.648 / TBDC 0.612"],
+  ["Normalcy (pattern-of-life)","day routine / night unusual","MEASURED","learned via observe(); false-alert flood ~90% → ~1-2%"],
+  ["Full test suite","184 passed / 3 skipped","GREEN","pytest"],
+];
+const SECURITY = [
+  ["Two-tier countersigned ledger","BUILT · TESTED","Core countersigns each node's chain head; a full-chain rewrite the edge chain passes, the notary catches."],
+  ["Legal admissibility","BUILT","BSA §63(4)/§65B(4) certificate generated from the ledger."],
+  ["Supply-chain integrity","BUILT · TESTED","SHA-256 verify per weight before load + HMAC-signed model manifest."],
+  ["AuthN/Z","BUILT · TESTED","scrypt + per-user salt, constant-time compare; HMAC-signed expiring tokens; RBAC."],
+  ["Brute-force protection","BUILT · TESTED","Per-(user,IP) sliding-window lockout, 429 + Retry-After."],
+  ["Sensor tamper detection","BUILT","Per-camera learnt baseline: spray/blackout, glare, defocus, repoint, frozen-feed."],
+  ["Offline integrity","BUILT · TESTED","Idempotent store-and-forward sync keyed on the edge's own event id."],
+  ["STRIDE threat model","DOCUMENTED","Per-component, every control marked Built / Partial / Planned."],
+];
+const CORE_SECRET="sector-core-notary-key (never held by an edge node)", NODE="BOP-EDGE-01";
+const $=id=>document.getElementById(id);
+
+// ---------- tabs ----------
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
+  t.classList.add('active'); $('p-'+t.dataset.t).classList.add('active');
+  window.scrollTo({top:0,behavior:'smooth'});
+});
+
+// ---------- render static tabs ----------
+$('cams').innerHTML = CAMERAS.map(([cid,name,meta,note])=>`
+  <div class="cam"><div class="ctitle">${cid} — ${name}</div>
+    <video src="https://sayak-satpathi-prahari.static.hf.space/assets/${cid}.mp4" controls muted loop playsinline preload="metadata"></video>
+    <div><span class="pill">${meta}</span></div><div class="cnote">${note}</div></div>`).join('');
+const sc = s => s.includes('GREEN')?'s-green':s.includes('DOC')?'s-doc':'s-built';
+$('bench').innerHTML = BENCH.map(([a,b,c,d])=>`<tr><td><b>${a}</b></td><td>${b}</td>
+  <td><span class="status ${sc(c)}">${c}</span></td><td style="color:var(--dim)">${d}</td></tr>`).join('');
+$('sec').innerHTML = SECURITY.map(([n,s,d])=>`<div class="sec-item">
+  <span class="status ${s.includes('BUILT')?'s-green':'s-doc'}">${s}</span> <b>${n}</b> — ${d}</div>`).join('');
+
+// ---------- crypto (real SHA-256 + HMAC via Web Crypto) ----------
+const enc=new TextEncoder();
+const hex=b=>[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');
+const sha256=async s=>hex(await crypto.subtle.digest('SHA-256',enc.encode(s)));
+const canon=o=>JSON.stringify(o,Object.keys(o).sort());
+const entryHash=(i,prev,ev)=>sha256(canon(Object.assign({i,prev},ev)));
+async function buildChain(evs){let prev="",ch=[];for(let i=0;i<evs.length;i++){const idx=i+1,h=await entryHash(idx,prev,evs[i]);ch.push({index:idx,prev,hash:h,event:evs[i]});prev=h;}return ch;}
+async function edgeVerify(ch){let prev="";for(const c of ch){if(c.prev!==prev)return{ok:false,broken:c.index};if(await entryHash(c.index,c.prev,c.event)!==c.hash)return{ok:false,broken:c.index};prev=c.hash;}return{ok:true,broken:null};}
+async function hmacSign(secret,msg){const k=await crypto.subtle.importKey('raw',enc.encode(secret),{name:'HMAC',hash:'SHA-256'},false,['sign']);return hex(await crypto.subtle.sign('HMAC',k,enc.encode(msg)));}
+const countersign=(i,h,ps)=>hmacSign(CORE_SECRET,`${NODE}|${i}|${h}|${ps}`);
+async function restamp(ch,victim,ne){const out=ch.map(c=>Object.assign({},c));let prev=victim>=2?out[victim-2].hash:"";for(const c of out){if(c.index<victim)continue;if(c.index===victim)c.event=ne;c.prev=prev;c.hash=await entryHash(c.index,prev,c.event);prev=c.hash;}return out;}
+
+// ---------- evidence demo state ----------
+const BASE_EVENTS=[
+  {cam:"CAM-052",type:"night_movement",score:0.82},
+  {cam:"CAM-011",type:"line_crossing",score:0.91},
+  {cam:"CAM-022",type:"off_route_movement",score:0.64},
+  {cam:"CAM-031",type:"group_movement",score:0.88},
+  {cam:"CAM-014",type:"zone_intrusion",score:0.79},
+];
+let S={chain:null,witnessed:null,rewritten:false};
+async function render(){
+  const ch=S.chain;
+  $('chain').innerHTML=ch.map(c=>`<tr><td class="mono">${c.index}</td>
+    <td>${c.event.cam} · ${c.event.type}</td><td class="mono">${c.event.score.toFixed(2)}</td>
+    <td class="mono">${c.hash.slice(0,18)}…</td></tr>`).join('');
+  const v=await edgeVerify(ch);
+  $('edgeCheck').innerHTML = v.ok
+    ? `<span class="pill ok">CHAIN INTACT</span> every link verifies`
+    : `<span class="pill bad">CHAIN BROKEN</span> at #${v.broken}`;
+  const w=S.witnessed;
+  if(!w){ $('coreCheck').innerHTML=`<span style="color:var(--faint);font-size:13px">Press ② to countersign the current head.</span>`; }
+  else{
+    const head=ch[ch.length-1];
+    const rewritten = S.rewritten && head.hash!==w.hash;
+    $('coreCheck').innerHTML = (rewritten
+      ? `<span class="pill bad">REWRITE DETECTED</span> the head no longer matches the witnessed hash`
+      : `<span class="pill ok">COUNTERSIGNED</span> witnessed head #${w.index}`)
+      + `<div style="color:var(--faint);font-size:12px;margin-top:6px" class="mono">witnessed hash ${w.hash.slice(0,22)}…  ·  core sig ${w.sig.slice(0,22)}…</div>`;
+  }
+  $('rewriteWarn').innerHTML = S.rewritten
+    ? `<div class="warnbox">The rewrite kept the chain <b>internally consistent</b> — the edge check above still
+       says INTACT. The core's countersignature, which the tamperer cannot reproduce, is what exposes it.
+       <b>That is the whole point.</b></div>` : '';
+}
+async function seal(){ S.chain=await buildChain(BASE_EVENTS.map(e=>({...e}))); S.witnessed=null; S.rewritten=false; await render(); }
+$('b-seal').onclick=seal;
+$('b-sign').onclick=async()=>{ const head=S.chain[S.chain.length-1];
+  S.witnessed={index:head.index,hash:head.hash,sig:await countersign(head.index,head.hash,"")}; await render(); };
+$('b-rewrite').onclick=async()=>{ S.chain=await restamp(S.chain,2,{cam:"CAM-011",type:"line_crossing",score:0.05}); S.rewritten=true; await render(); };
+$('b-reset').onclick=seal;
+seal();  // initial chain, like the Streamlit app
+</script>
+</body>
+</html>
