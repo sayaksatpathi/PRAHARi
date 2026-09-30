@@ -1,498 +1,59 @@
-# Prahari
+# 🛡️ Prahari — Edge AI Video-Intelligence for CCTV
 
-**AI video-intelligence layer for existing CCTV infrastructure**
-SIH26187 · Ministry of Home Affairs / Sashastra Seema Bal · Smart Automation
+**AI video-intelligence layer for existing CCTV infrastructure.**
+SIH26187 · Ministry of Home Affairs / Sashastra Seema Bal · Smart India Hackathon 2026
 
-Prahari turns CCTV that is *already installed* into camera-aware, edge-processed,
-evidence-backed border intelligence that keeps working when the uplink does not.
-
----
-
-## What this is, and what it is not
-
-Prahari does **not** replace CIBMS, and does not claim existing border
-surveillance lacks AI. CIBMS is the broader integrated border-management
-ecosystem — sensors, radars, thermal, networks, command and control. Prahari is a
-narrower thing that sits underneath it:
-
-> CIBMS integrates multiple border-surveillance technologies. Prahari focuses
-> specifically on extracting additional operational intelligence from existing,
-> heterogeneous CCTV, through measured camera-capability profiling, edge-first
-> processing, evidence-backed events, and resilient operation across
-> connectivity loss.
-
-Object detection, tracking and ANPR are solved problems and Prahari did not
-invent any of them. The contribution is the **deployment architecture**.
+> Prahari turns already-installed CCTV into camera-aware, edge-processed, evidence-backed border intelligence that keeps working when the uplink does not.
 
 ---
 
-## The six things that are actually different
+## What it is (and isn't)
 
-**1. Capability profiling is measured, not declared.**
-Most systems ask an operator what a camera can do. Prahari measures: effective
-resolution (as opposed to claimed), delivered frame rate, sensor noise floor,
-compression damage — and then recovers the **ground plane automatically** from
-the bounding boxes of people who happen to walk through the scene. No survey, no
-calibration target, no operator drawing reference lines.
+Prahari does **not** replace CIBMS or claim border surveillance lacks AI. Object detection, tracking, and ANPR are solved problems — **Prahari's contribution is the deployment architecture**: extracting operational intelligence from existing, heterogeneous CCTV through measured capability profiling, edge-first processing, evidence-backed events, and resilient operation across connectivity loss.
 
-From that it computes pixels-on-target and issues a **Camera Capability
-Certificate** against the IEC 62676-4 DORI bands. Analytics are granted **per
-image region**, because a camera's near field routinely supports plate reading
-while its far field barely supports noticing a person is present.
+## What's actually different
 
-Verified against known truth: on clean ground truth the self-calibration recovers
-each camera's mounting height exactly, and **against the live pipeline** — with a
-noisy detector, class confusion and misclassified livestock in the samples — it
-lands within **0.4–3.2 %** across the five-camera fleet. Getting there took four
-separate fixes, each of which had produced a *confidently wrong* answer rather
-than an obviously broken one; they are written up in
-[docs/camera-profiling.md](docs/camera-profiling.md).
+1. **Capability profiling is measured, not declared.** Recovers effective resolution, delivered frame rate, noise floor, and compression damage; auto-recovers the ground plane from pedestrian bounding boxes (no survey/calibration target). Issues a Camera Capability Certificate against IEC 62676-4 DORI bands. *Self-calibration lands within **0.4–3.2%** of known mounting height across a 5-camera fleet.*
+2. **Two doctrines.** Tripwire/restricted-zone rules for fenced sectors; pattern-of-life rules for open borders (Indo-Nepal/Bhutan) where a tripwire would fire thousands of times a day.
+3. **Alerting is rationed; recording is not.** A governor budgets operator attention — raising the score threshold when events exceed the hourly budget. *Measured: a 90-second window went from **1064 → 138 events**, with 81% recorded without interrupting anyone.*
+4. **ANPR that refuses to guess.** Plate reading runs only inside image regions certified to ≥250 px/m.
+5. **Evidence sealed in a hash chain.** Each event commits to the hash of the prior one — tamper-evident, checkable after offline backlogs.
+6. **Offline is the design point.** Detection never depends on the uplink; metadata is pushed, video is pulled; records are never dropped under storage pressure.
+7. **Cross-camera corridor.** A camera topology graph with learnt transition times links tracks across cameras into global identities.
 
-**2. Two doctrines, because India's borders are not one problem.**
-Fenced sectors run tripwire and restricted-zone rules, where crossing the line
-*is* the event. Open borders — Indo-Nepal and Indo-Bhutan are open by treaty,
-with heavy lawful daily traffic — run pattern-of-life rules against a lawful
-route instead, because a tripwire there fires thousands of times a day and
-teaches the operator to ignore it. Selectable per camera.
+## Tech Stack
 
-**3. Alerting is rationed; recording is not.**
-The failure mode that kills video analytics deployments is not inaccuracy, it is
-the operator who stopped looking on night three. Prahari separates *recording an
-event* (always, complete, sealed, auditable) from *raising an alert* (costs human
-attention, budgeted). When events exceed the hourly budget the score threshold
-rises until the rate fits, so the operator gets the most significant events
-rather than the first ones. Nothing is discarded, and the suppression count and
-current threshold are always on screen.
+| Layer | Tools |
+|------|-------|
+| CV | Object detection, tracking, ANPR (OpenCV) |
+| Services | Python, FastAPI (edge node + sector core) |
+| Data | Camera capability profiling, hash-chained event store, SQLite |
 
-Measured effect during development: fixing duplicate suppression and zone-scoped
-normalcy took a 90-second window from **1064 events to 138**, with the governor
-recording 81 % of them without interrupting anyone.
-
-**4. ANPR that refuses to guess.** Plate reading runs only where the certificate
-grants it *and* only inside the image band that reaches 250 px/m. In a traced
-approach the system declines to read a plainly visible, 118 px-wide plate, then
-reads it three frames later once the vehicle crosses into the certified band.
-Repeat-plate analysis across the camera set is the highest-value open-border
-signal, and only dependable reads feed it. See [docs/anpr.md](docs/anpr.md).
-
-**5. Evidence is sealed into a hash chain.**
-Every event commits to the hash of the one before it, so altering or removing any
-event breaks every link that follows. This exists specifically because of the
-offline story: a node disconnected for three days is asking the sector core to
-accept a backlog on trust, and the chain makes that checkable.
-*Tamper-evident, not tamper-proof* — see [Limitations](#limitations).
-
-**6. Offline is the design point, not a failure case.**
-Detection never depends on the link. Metadata is pushed, video is pulled. Under
-storage pressure clips are dropped, records never are. Clock drift during a long
-outage is corrected at the core without overwriting what the node observed.
-
-**7. Cameras are a corridor, not a list.**
-A camera topology graph with learnt transition times links a track leaving one
-camera to a track arriving at the next, so five independent cameras become one
-sector with global identities. *Seen at CAM-014 heading north-east, arrived at
-CAM-022 on time, never reached CAM-011* is an intelligence product; three
-unrelated events are not. Matching is deliberately conservative — an arrival that
-cannot be linked confidently becomes a new entity rather than inventing a journey
-— and an entity that was demonstrably travelling the corridor and then goes
-silent raises `CORRIDOR_DROPOUT`. Live on the node: 150 global entities, 2 linked
-across cameras. See [docs/crosscam.md](docs/crosscam.md).
-
-**8. Own patrols are recognised, not whitelisted.**
-A BOP's own patrols walk the same routes on a schedule through the same zones the
-rules watch, which makes the system's most repeatable alert its own side walking
-past. Prahari holds movement against a *declared* patrol — right camera, right
-zone, right window, right direction, plausible pace — and suppresses only when
-all of it agrees. Matching a patrol's identity while breaking its expectations
-**raises** the priority instead: a patrol walking its route backwards is either
-lost, in trouble, or not the patrol. Schedule is a hard gate, suppression is
-budgeted per window, and nothing is ever deleted or hidden. See
-[docs/patrol-suppression.md](docs/patrol-suppression.md).
-
----
-
-## Quick start
-
-Requires Python 3.11+. No Docker, no Node toolchain, no build step.
+## Quick Start
 
 ```bash
 python -m venv .venv --system-site-packages
-.venv/Scripts/python.exe -m pip install -r requirements.txt
+.venv/bin/python -m pip install -r requirements.txt
+
+# Edge node (runs standalone):
+.venv/bin/python -m uvicorn prahari.edge.app:app --port 8420   # http://127.0.0.1:8420
+
+# Optional sector core:
+.venv/bin/python -m uvicorn prahari.core.app:app --port 9420
 ```
 
-Run the sector core (optional — the edge node runs standalone without it):
+## Verify
 
 ```bash
-.venv/Scripts/python.exe -m uvicorn prahari.core.app:app --port 9420
+python -m pytest tests/ -q
+python scripts/smoke_profiling.py     # ground-plane self-calibration vs known truth
+python scripts/evaluate.py            # deterministic replay harness → var/eval/evaluation.html
 ```
-
-Run the edge node:
-
-```bash
-.venv/Scripts/python.exe -m uvicorn prahari.edge.app:app --port 8420
-```
-
-Open **http://127.0.0.1:8420**. The initial administrator password is printed
-once to the node console on first start.
-
-> **Windows note.** Hyper-V/WSL reserve large TCP ranges (commonly 7986–8185), and
-> binding inside one fails with `WinError 10013`, which reads like a permissions
-> problem. That is why the defaults are 8420/9420. Check yours with
-> `netsh int ipv4 show excludedportrange protocol=tcp`.
-
-### Verify it
-
-```bash
-.venv/Scripts/python.exe -m pytest tests/ -q
-.venv/Scripts/python.exe scripts/smoke_profiling.py
-.venv/Scripts/python.exe scripts/smoke_e2e.py
-```
-
-`smoke_profiling.py` checks the ground-plane self-calibration against the
-simulator's known truth. `smoke_e2e.py` drives the three demonstration moments
-against a running node and checks each actually happened.
-
-### Evaluation report
-
-```bash
-python scripts/evaluate.py            # deterministic replay harness (simulator)
-python scripts/evaluate.py --mot <dir>  # real footage, real GT (MOT format)
-```
-
-Writes `var/eval/evaluation.html`: intruder detection, latency, alert
-suppression, profiling accuracy and per-class detection, scored against ground
-truth the harness controls. It is explicit about which numbers are real and
-which are plumbing checks — on the simulated fleet, detection accuracy
-characterises the synthetic detector, while profiling error (0.2–2.2%) and alert
-suppression (71–97%) are genuine. See [docs/evaluation.md](docs/evaluation.md).
-
-### Ingesting real RTSP
-
-```bash
-pip install imageio-ffmpeg
-python scripts/make_footage.py        # render recordings
-python scripts/serve_rtsp.py          # serve them as RTSP via MediaMTX
-python scripts/use_rtsp_cameras.py --only CAM-011,CAM-031
-```
-
-Frames then arrive over the wire through the same `StreamSource` that reads a
-real camera. **Detection needs real footage as well as a real model** — see
-[docs/rtsp.md](docs/rtsp.md), which explains why and how the system says so.
-
----
-
-## The demonstration
-
-Three moments, in the **Demonstration** tab. Every control injects something into
-the simulated scene and then leaves the real pipeline to find it — nothing
-fabricates an event.
-
-**1. Cameras are not alike.** Open **Camera Capability**. Five cameras, five
-different measured profiles. The gate camera is granted ANPR in the lower quarter
-of its frame only; the 62° perimeter dome is refused it outright; the night approach
-camera is refused it at 93 px/m against the 250 px/m the standard requires. Every
-refusal states its measured reason.
-
-**2. Intrusion to evidence.** *Approach & cross the line* on CAM-014. A subject
-walks to the fence, crosses it, is detected, tracked, ruled on, scored with a
-visible derivation, and gets an evidence clip that includes the seconds *before*
-the trigger. Open the alert to see the score broken into named factors.
-
-**3. The link dies.** *Cut the uplink*. Detection keeps running, events queue
-locally with their evidence, the queue grows on screen. *Restore the uplink* and
-the backlog drains with original timestamps preserved and the hash chain intact.
-
-Also worth showing: **Evidence Integrity → Verify now**, and the sensor-attack
-controls (cover the lens, blind it, replay a frozen feed).
-
----
-
-## Architecture
-
-```
-existing CCTV ──RTSP/ONVIF──▶ ┌─────────────── prahari-edge (at the BOP) ──────────────┐
-                              │                                                        │
-                              │  capability profiling ──▶ Camera Capability Certificate│
-                              │          │                                             │
-                              │          ▼ (gates what may run, and where in frame)    │
-                              │  detection ──▶ tracking ──▶ rule engine ──▶ scoring    │
-                              │                                    │                   │
-                              │                          ┌─────────┴────────┐          │
-                              │                          ▼                  ▼          │
-                              │                    alert governor      evidence +      │
-                              │                   (rations attention)  hash chain      │
-                              │                                            │           │
-                              │  SQLite + local disk ◀─────────────────────┘           │
-                              └────────────────────────┬───────────────────────────────┘
-                                                       │ metadata pushed, video pulled
-                                                       ▼
-                                              prahari-core (sector)
-```
-
-Two deployables, and **the sync contract between them is the product**. The edge
-owns cameras, inference, evidence and the queue, and runs fully standalone. The
-core aggregates, corrects clock drift, verifies chains, and touches no camera.
-
-| Layer | Choice | Why |
-|---|---|---|
-| ANPR | fast-alpr (MIT), ONNX | Plate detection and OCR both in ONNX, so it adds a model rather than a framework — no torch |
-| Inference | ONNX Runtime | ~50 MB vs ~2.5 GB; one code path for CPU and CUDA; avoids the AGPL-3.0 licence attached to Ultralytics YOLO, which is a real procurement consideration for a government deployment |
-| Edge storage | SQLite (WAL, `synchronous=FULL`) | Survives power loss with no server process to babysit — which is what an unattended outpost node needs |
-| Message bus | In-process, NATS-shaped subjects | A broker is a process to install and fail, for no gain at edge scale. Subjects and schemas match JetStream, so the transport is one file to swap |
-| Frontend | Zero-build vanilla JS | A node that needs npm to render its own interface cannot be recovered from a USB stick |
-| Map | Hand-drawn SVG | A tile-serving map needs the internet; this console must render without it |
-
----
-
-## API
-
-Interactive documentation at `/docs` on a running node.
-
-| Method | Path | Purpose |
-|---|---|---|
-| POST | `/api/auth/login` | Obtain a bearer token |
-| GET | `/api/system/status` | Node status, link posture, sync, alerting |
-| GET | `/api/system/bandwidth` | Measured uplink accounting |
-| GET | `/api/system/ledger/verify` | Walk the evidence hash chain |
-| GET | `/api/cameras` | Cameras with live runtime state |
-| GET | `/api/cameras/{id}/certificate` | Measured capability certificate |
-| POST | `/api/cameras/{id}/test` | Probe a real stream (reports CONNECTED only after a genuine frame read) |
-| POST | `/api/cameras/{id}/profile` | Discard the certificate and re-measure |
-| GET | `/api/events` | Event log, filterable |
-| GET | `/api/events/{id}/evidence/{frame\|thumb\|clip}` | Evidence retrieval |
-| POST | `/api/alerts/{id}/acknowledge` | Acknowledge, with true-positive / false-alarm feedback |
-| GET | `/api/anpr/plates` | Plate reads and repeat-entity history |
-| POST | `/api/cameras/{id}/test` | Probe a real RTSP stream |
-| — | `scripts/evaluate.py` | Deterministic evaluation harness → HTML report |
-| — | `scripts/benchmark_segment.py` | Segmentation latency / FPS / VRAM benchmark |
-| POST | `/api/demo/action` | Drive the demonstration |
-| WS | `/ws` | Live detections, events, status |
-
-Roles: `admin` (configure), `operator` (acknowledge, give feedback), `viewer`.
-
----
-
-## Configuration
-
-Copy `.env.example` to `.env`. Nothing operational is hard-coded; the thresholds
-that matter most:
-
-```
-PRAHARI_LOITERING_THRESHOLD_SECONDS=30
-PRAHARI_EVENT_COOLDOWN_SECONDS=30     # one crossing = one event
-PRAHARI_ALERT_BUDGET_PER_HOUR=20      # operator attention budget
-PRAHARI_SEGMENT_BACKEND=auto          # event-triggered segmentation: auto|sam_onnx|grabcut|off
-PRAHARI_EVENT_CLIP_BEFORE_SECONDS=3   # pre-roll: the approach, not just the trigger
-PRAHARI_QUEUE_MAX_BYTES=2147483648    # before clip eviction begins
-PRAHARI_INFERENCE_INTERVAL=2          # detect every Nth frame; track every frame
-```
-
-### Using real cameras
-
-Set `source_kind` to `rtsp` and point `stream_url` at the camera or, better, at
-the **existing NVR's re-stream**. Two field notes that matter:
-
-- Most installed IP cameras cap simultaneous RTSP clients, and on a site with a
-  recorder the budget is often already spent. Pulling the recorder's re-stream
-  avoids fighting the existing system for the camera.
-- Prefer the **sub-stream**. Analytics rarely need full resolution, and the
-  decode saving is large.
-
-RTSP is forced over TCP: UDP is the default and it is the wrong default here,
-because a lossy backhaul produces torn frames that look like motion to a detector
-and generate false events all night.
-
-### Using a real model
-
-Drop a YOLO-style ONNX export at `models/yolo.onnx` — see `models/README.md`.
-With no model present the node falls back to a clearly-labelled synthetic
-detector and badges it in the dashboard. For CUDA: `pip install onnxruntime-gpu`.
-
----
 
 ## Limitations
 
-Stated plainly, because a system for this domain that hides them is worse than
-one that has them. The full, categorised list — what is measured, what is
-specified, and what is explicitly unknown — is
-[docs/limitations.md](docs/limitations.md).
-
-Prahari is the **video-intelligence layer of a multi-sensor system**, not the
-whole system: radar and PIDS have a defined integration hook and are not
-implemented ([docs/sensor-fusion.md](docs/sensor-fusion.md)). Deployment
-requirements, including what is measured on the prototype and what needs field
-measurement, are in
-[docs/deployment-profile.md](docs/deployment-profile.md).
-
-- **The detector is simulated unless you install a model.** The fallback models
-  miss rate, class confusion and noise-driven false positives so the pipeline is
-  exercised honestly, but its confidences are synthetic and carry no accuracy
-  claim.
-- **No border-domain validation has been done.** Nothing here has been measured
-  against real border imagery at night, at range, in fog or rain. COCO metrics say
-  nothing about that, and no public dataset represents Indian border CCTV
-  conditions. Field validation is required before any operational claim.
-- **The Event Priority Score is a ranking aid, not a probability.** It is not
-  calibrated against ground truth and must not be read as a likelihood of
-  intrusion.
-- **Tamper-evident, not tamper-proof.** Anyone holding the node's key material
-  could forge a consistent chain. Hardware-backed keys and countersigning at the
-  core are designed for and not built.
-- **Replay detection catches the crude case only.** Byte-identical frames are
-  caught; a competent attacker looping a long genuine recording is not. That needs
-  a challenge the camera cannot precompute.
-- **Ground-plane calibration assumes 1.7 m mean stature.** Errors there scale
-  metric output linearly, which is why speeds are reported as estimates.
-- **The MJPEG preview endpoint is unauthenticated.** Browsers cannot attach an
-  Authorization header to an `<img>`, and tokens in query strings would write
-  credentials into every access log. Short-lived signed stream URLs are the fix.
-- **The real ANPR backend is not validated.** fast-alpr loads and runs, but a
-  model trained on photographs finds nothing in synthetic imagery, so its
-  accuracy is demonstrated by nothing in this repository. Plates shown in the
-  demo come from the synthetic reader and are labelled as such.
-- **Face recognition is deliberately absent.** Our own profiling shows almost no
-  perimeter camera meets the pixels-on-target threshold for identification.
-  Shipping it would be dishonest, and it carries legal and privacy requirements a
-  video analytics layer cannot satisfy alone.
-- **Docker files are untested.** Docker was not available on the development
-  machine; the native path above is the supported one.
+Tamper-**evident**, not tamper-proof. Metrics from a simulated 5-camera fleet plus a live pipeline; `docs/` is explicit about which numbers are ground-truth-validated vs. plumbing checks.
 
 ---
 
-## Roadmap
-
-The gap between this and something deployable, in priority order:
-
-1. **Detector configuration is a candidate, not a decision.** A controlled
-   MOT17 benchmark ([docs/inference-stack.md](docs/inference-stack.md)) puts
-   YOLOX-Tiny @640 ahead on accuracy-per-compute: against the same weights at
-   416, recall rises 72% relative and MOTA 0.255 -> 0.412. Against YOLOX-S at
-   the same input, recall *falls* 9% for 52% more compute - more pixels beat a
-   bigger model here. What S buys is tighter boxes and half the identity
-   switches, which matter for dwell and handoff, so the CUDA rows (outstanding,
-   GPU occupied) decide whether that is affordable.
-2. **Cross-camera re-identification.** Track handoff, global entities and
-   corridor-dropout detection are built and running
-   ([docs/crosscam.md](docs/crosscam.md)); the appearance cue is an HSV colour
-   signature, which is genuinely weak between cameras with very different optics.
-   A proper re-ID model is the honest fix, and topology is currently seeded
-   rather than discovered from observed co-occurrence.
-3. **Patrol-roster ingestion.** Friendly-force suppression is built and running
-   ([docs/patrol-suppression.md](docs/patrol-suppression.md)), but profiles are
-   entered by hand: there is no feed from a duty-roster system, and an ad-hoc
-   patrol called out at short notice correctly gets the normal alert path.
-   Separating a person moving *with* a patrol from the patrol itself needs
-   re-identification, and is the same gap as item 2.
-4. **SAM 2's GPU cost is unmeasured.** The backend is validated against real
-   weights (25/25 masks, IoU 0.975) and three bugs in it were found and fixed in
-   the process. What is missing is latency, FPS and VRAM on an idle GPU — every
-   measurement so far was taken under contention from an unrelated job, which
-   measures the queue rather than the model. See
-   [docs/segmentation.md](docs/segmentation.md).
-5. **Thermal-specific models.** Real border night capability is thermal, and an
-   RGB model on a thermal feed is a compromise.
-6. **No domain footage.** This is the real remaining credibility gap. The
-   accuracy numbers above are MOT17 — daylight street pedestrians — and they do
-   not transfer to night, range, fog or a decade-old fog-lensed dome. The
-   harness, the adapter and the metrics are built and produce real figures the
-   moment annotated border footage exists; obtaining it under the appropriate
-   terms is the sponsoring organisation's to do. VIRAT is set up but gated
-   behind a signed Data Protection Agreement, which is theirs to accept, not
-   this tooling's ([docs/evaluation.md](docs/evaluation.md)).
-
----
-
-## Layout
-
-```
-prahari/
-├── prahari/
-│   ├── common/        models, config, SQLite, bus, geometry
-│   ├── edge/          the node: profiling, detection, tracking, rules,
-│   │                  scoring, patrol suppression, cross-camera,
-│   │                  alerting, evidence, sync, API
-│   └── core/          sector aggregator
-├── web/               zero-build dashboard
-├── scripts/           smoke tests and verification
-├── tests/             154 unit tests
-└── models/            ONNX models (not committed)
-```
-
-## For evaluators (SIH)
-
-Five questions, five pointers:
-
-1. **What problem does Prahari solve?** — top of this README.
-2. **Why can it work with existing CCTV?** — camera-capability profiling above and
-   [docs/camera-profiling.md](docs/camera-profiling.md).
-3. **What happens when connectivity fails?** — [docs/offline-mode.md](docs/offline-mode.md),
-   [docs/recovery-validation.md](docs/recovery-validation.md).
-4. **What evidence does an alert produce?** — clip + frame + metadata + hash chain;
-   verify with `scripts/verify_evidence.py`.
-5. **How was the system actually evaluated?** — [docs/benchmark-matrix.md](docs/benchmark-matrix.md)
-   (measured vs pending, no fabricated numbers) and [docs/evaluation.md](docs/evaluation.md).
-
-The demo walkthrough, capture specs and pre-flight checklist live in
-[presentation/](presentation/). Dataset strategy, provenance and licenses are in
-[docs/data-strategy.md](docs/data-strategy.md), [data/README.md](data/README.md)
-and [DATA_LICENSES.md](DATA_LICENSES.md).
-
-## SIH 2026 Evidence
-
-A judge can understand Prahari from these pointers without reading the code.
-**Classification: SIH DEMO READY / EVIDENCE FROZEN — not production-field validated.**
-
-> **Update 2026-09-25 — audit completion.** Since the freeze, the outstanding
-> audit items were worked through; the honest per-item outcome (closed / advanced
-> / open-blocked, with evidence) is in
-> [docs/audit-completion.md](docs/audit-completion.md). Headlines: ORT-CUDA now
-> runs the production ONNX path on GPU (`scripts/benchmark_gpu_detectors.py`);
-> yolov8m@1280 reproduced at MOTA 0.4351/IDF1 0.5601, beating the baseline; the
-> deployable face default is YuNet with SCRFD's research-only weights hard-gated
-> ([docs/scrfd-licensing.md](docs/scrfd-licensing.md)); a procurement BOM
-> ([docs/bill-of-materials.md](docs/bill-of-materials.md)); a trilingual
-> EN/हिं/বাং console; ONVIF onboarding validated against a mock device; and the
-> scene-anomaly capability benchmarked to the **official Street Scene protocol**
-> (frame AUC 0.907 / RBDC 0.648 / TBDC 0.612 on UCSD Ped2) instead of the 49 GB
-> download ([docs/streetscene-benchmark.md](docs/streetscene-benchmark.md)).
-> Thermal detection is now measured on real LWIR (AP@0.5 0.29) and cross-modal
-> Re-ID stress-tested, with the true RegDB harness ready
-> ([docs/thermal-validation.md](docs/thermal-validation.md)); operator testing was
-> executed on the live app (9/9 tasks, [docs/operator-testing.md](docs/operator-testing.md)).
-> Field validation is now measured across border-condition **proxies** on real
-> public data — night (thermal AP 0.29), range (VisDrone AP 0.30), pattern-of-life
-> (Ped2 AUC 0.907), daylight (MOT17) — labelled as proxies
-> ([docs/field-validation-kit.md](docs/field-validation-kit.md) §0). The only steps
-> that remain are inherently external: real Indian border footage, the gated
-> VI-ReID/KKWETC datasets, and recruited operators — each with a ready harness.
-
-- **Problem** — extract intelligence from *existing* border CCTV, edge-first,
-  evidence-backed, resilient to uplink loss (top of this README).
-- **Architecture** — [docs/architecture.md](docs/architecture.md): CCTV → profiling
-  → detection/tracking → normalcy/patrol rules → alert governor → evidence + hash chain.
-- **Demo** — 5–7 min walkthrough: [presentation/demo/demo-script.md](presentation/demo/demo-script.md),
-  checklist [presentation/demo/demo-checklist.md](presentation/demo/demo-checklist.md).
-- **Measured benchmarks** — [docs/benchmark-matrix.md](docs/benchmark-matrix.md),
-  judge sheet [presentation/judge-evidence.md](presentation/judge-evidence.md)
-  (Re-ID Rank-1 0.715/mAP 0.4925 · face Haar 0.121 vs SCRFD candidate 0.489 ·
-  border 7/7 · normalcy 34→0).
-- **Security** — [docs/security-validation.md](docs/security-validation.md)
-  (Fernet-encrypted camera credentials, auth).
-- **Evidence integrity** — append-only SHA-256 hash chain; `scripts/verify_evidence.py`.
-- **Offline operation** — [docs/offline-mode.md](docs/offline-mode.md),
-  [docs/recovery-validation.md](docs/recovery-validation.md) (store-and-forward, integrity on reconnect).
-- **Known limitations** — [docs/limitations.md](docs/limitations.md) + the freeze audit:
-  SIMULATED ≠ field validated · SCRFD = candidate (research-only weights) · ONVIF UNVALIDATED ·
-  WIDER FACE test GT withheld · no SCRFD GPU benchmark · Street Scene NOT DOWNLOADED ·
-  seeded normalcy ≠ long-term baseline.
-- **Reproducibility** — every figure regenerates: `scripts/evaluate*.py`,
-  `scripts/evaluate_widerface.py`, `scripts/border_scenarios.py`,
-  `scripts/validate_normalcy.py`, `scripts/test_real_clips.py`.
-- **Full freeze audit** — [docs/final-sih-release-readiness.md](docs/final-sih-release-readiness.md).
-
-## Licence and attribution
-
-See `LICENCE`. Third-party components are listed in `docs/attribution.md` with
-their licences. No code was copied from existing NVR projects; where an approach
-is borrowed (ByteTrack's two-stage association, IEC 62676-4 DORI bands) it is
-cited in the module that uses it.
+*Team project · Smart India Hackathon 2026.*
